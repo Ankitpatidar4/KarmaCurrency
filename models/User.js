@@ -35,7 +35,11 @@ const userSchema = new mongoose.Schema(
     kc: {
         type: Number,
         default: 0
-    }
+    },
+    avatar: {
+    type: Number,
+    default: 0
+}
 },
 {
     timestamps: true

@@ -70,7 +70,8 @@ router.post("/register", async (req, res) => {
     password: hashedPassword,
     deviceId,
     appNames: [appName],
-    kc: 100
+    kc: 100,
+    avatar:0
 });
 
     return res.json({
@@ -80,6 +81,7 @@ router.post("/register", async (req, res) => {
       name: user.name,
       email:user.email,
        kc: user.kc,
+       avatar: user.avatar,
       appNames: user.appNames
     });
 
@@ -143,6 +145,7 @@ router.post("/login", async (req, res) => {
       email:user.email,
       token,
        kc: user.kc,
+       avatar: user.avatar,
       appNames: user.appNames
     });
 
@@ -183,6 +186,7 @@ router.post("/me", async (req, res) => {
       email: user.email,
       token: "",
        kc: user.kc,
+       avatar: user.avatar,
       appNames: user.appNames
     });
 
@@ -222,6 +226,7 @@ router.post("/check-device", async (req, res) => {
       name: user.name,
       email: user.email,
        kc: user.kc,
+       avatar: user.avatar,
       appNames: user.appNames
     });
 
@@ -275,6 +280,7 @@ router.post("/confirm-device-login", async (req, res) => {
       email: user.email,
       token,
        kc: user.kc,
+       avatar: user.avatar,
       appNames: user.appNames
     });
 
@@ -323,6 +329,7 @@ router.post("/device-login", async (req, res) => {
       name: user.name,
       token,
        kc: user.kc,
+       avatar: user.avatar,
       appNames: user.appNames
     });
 
