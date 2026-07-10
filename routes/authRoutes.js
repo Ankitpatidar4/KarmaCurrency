@@ -242,7 +242,7 @@ router.post("/me", async (req, res) => {
       token: "",
        kc: user.kc,
        avatar: user.avatar,
-       appRewards: user.appRewards
+       appRewards: user.appRewards,
       appNames: user.appNames
     });
 
