@@ -6,15 +6,37 @@ const User = require("../models/User");
 const router = express.Router();
 
 function addAppName(user, appName) {
-  let isNewAppAdded = false;
-
-  if (appName && !user.appNames.includes(appName)) {
-    user.appNames.push(appName);
-    user.kc += 100;
-    isNewAppAdded = true;
+  if (!appName || typeof appName !== "string") {
+    return false;
   }
 
-  return isNewAppAdded;
+  const cleanAppName = appName.trim();
+
+  if (!cleanAppName) {
+    return false;
+  }
+
+  if (!Array.isArray(user.appNames)) {
+    user.appNames = [];
+  }
+
+  if (typeof user.kc !== "number") {
+    user.kc = 0;
+  }
+
+  const appAlreadyLinked = user.appNames.some(
+    linkedApp =>
+      linkedApp.trim().toLowerCase() === cleanAppName.toLowerCase()
+  );
+
+  if (appAlreadyLinked) {
+    return false;
+  }
+
+  user.appNames.push(cleanAppName);
+  user.kc += 100;
+
+  return true;
 }
 
 router.post("/register", async (req, res) => {
@@ -128,9 +150,11 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    addAppName(user, appName);
-    await user.save();
+    const isNewAppAdded = addAppName(user, appName);
 
+if (isNewAppAdded) {
+  await user.save();
+}
     const token = jwt.sign(
       { userId: user._id, name: user.name },
       process.env.JWT_SECRET,
@@ -138,16 +162,19 @@ router.post("/login", async (req, res) => {
     );
 
     return res.json({
-      success: true,
-      message: "Login successful",
-      userId: user._id,
-      name: user.name,
-      email:user.email,
-      token,
-       kc: user.kc,
-       avatar: user.avatar,
-      appNames: user.appNames
-    });
+  success: true,
+  message: isNewAppAdded
+    ? "New app linked. You received 100 KC."
+    : "Login successful",
+  userId: user._id,
+  name: user.name,
+  email: user.email,
+  token,
+  kc: user.kc,
+  avatar: user.avatar,
+  appNames: user.appNames,
+  isNewAppAdded
+});
 
   } catch (error) {
     return res.json({
@@ -261,31 +288,42 @@ router.post("/confirm-device-login", async (req, res) => {
       });
     }
 
-    if (!user.appNames.includes(appName)) {
-      user.appNames.push(appName);
+    const isNewAppAdded = addAppName(user, appName);
+
+    if (isNewAppAdded) {
       await user.save();
     }
 
     const token = jwt.sign(
-      { userId: user._id, name: user.name },
+      {
+        userId: user._id,
+        name: user.name
+      },
       process.env.JWT_SECRET,
-      { expiresIn: "7d" }
+      {
+        expiresIn: "7d"
+      }
     );
 
     return res.json({
       success: true,
-      message: "Login successful",
+      message: isNewAppAdded
+        ? "New app linked. You received 100 KC."
+        : "Login successful. App already linked.",
       userId: user._id,
       name: user.name,
       email: user.email,
       token,
-       kc: user.kc,
-       avatar: user.avatar,
-      appNames: user.appNames
+      kc: user.kc,
+      avatar: user.avatar,
+      appNames: user.appNames,
+      isNewAppAdded
     });
 
   } catch (error) {
-    return res.json({
+    console.error("Confirm device login error:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Server error",
       error: error.message
@@ -313,8 +351,11 @@ router.post("/device-login", async (req, res) => {
       });
     }
 
-    addAppName(user, appName);
-    await user.save();
+    const isNewAppAdded = addAppName(user, appName);
+
+if (isNewAppAdded) {
+  await user.save();
+}
 
     const token = jwt.sign(
       { userId: user._id, name: user.name },
@@ -323,15 +364,19 @@ router.post("/device-login", async (req, res) => {
     );
 
     return res.json({
-      success: true,
-      message: "Auto login successful",
-      userId: user._id,
-      name: user.name,
-      token,
-       kc: user.kc,
-       avatar: user.avatar,
-      appNames: user.appNames
-    });
+  success: true,
+  message: isNewAppAdded
+    ? "New app linked. You received 100 KC."
+    : "Auto login successful",
+  userId: user._id,
+  name: user.name,
+  email: user.email,
+  token,
+  kc: user.kc,
+  avatar: user.avatar,
+  appNames: user.appNames,
+  isNewAppAdded
+});
 
   } catch (error) {
     return res.json({
