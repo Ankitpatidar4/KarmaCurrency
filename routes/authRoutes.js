@@ -342,4 +342,72 @@ router.post("/device-login", async (req, res) => {
   }
 });
 
+
+router.post("/update-profile", async (req, res) => {
+  try {
+    const { userId, name, avatar } = req.body;
+
+    if (!userId) {
+      return res.json({
+        success: false,
+        message: "UserId is required"
+      });
+    }
+
+    const cleanName =
+      typeof name === "string" ? name.trim() : "";
+
+    if (!cleanName) {
+      return res.json({
+        success: false,
+        message: "Name is required"
+      });
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    const duplicateName = await User.findOne({
+      name: cleanName,
+      _id: { $ne: userId }
+    });
+
+    if (duplicateName) {
+      return res.json({
+        success: false,
+        message: "Username already registered"
+      });
+    }
+
+    user.name = cleanName;
+    user.avatar = avatar;
+
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: "Profile updated successfully",
+      userId: user._id,
+      name: user.name,
+      email: user.email,
+      kc: user.kc,
+      avatar: user.avatar,
+      appNames: user.appNames
+    });
+
+  } catch (error) {
+    return res.json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;
