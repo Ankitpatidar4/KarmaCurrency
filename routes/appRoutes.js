@@ -11,11 +11,11 @@ router.get("/list", async (req, res) => {
       .sort({ createdAt: -1 })
       .select("_id appName appUrl appIcon appDetail");
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       message: "App list loaded successfully",
       totalApps: apps.length,
-      apps: apps.map(app => ({
+      apps: apps.map((app) => ({
         appId: app._id.toString(),
         appName: app.appName,
         appUrl: app.appUrl,
@@ -24,6 +24,8 @@ router.get("/list", async (req, res) => {
       }))
     });
   } catch (error) {
+    console.error("Get app list error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Server error",
