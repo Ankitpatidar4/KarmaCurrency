@@ -20,21 +20,35 @@ function addAppName(user, appName) {
     user.appNames = [];
   }
 
+  if (!Array.isArray(user.appRewards)) {
+    user.appRewards = [];
+  }
+
   if (typeof user.kc !== "number") {
     user.kc = 0;
   }
 
-  const appAlreadyLinked = user.appNames.some(
+  const alreadyLinked = user.appNames.some(
     linkedApp =>
-      linkedApp.trim().toLowerCase() === cleanAppName.toLowerCase()
+      linkedApp.trim().toLowerCase() ===
+      cleanAppName.toLowerCase()
   );
 
-  if (appAlreadyLinked) {
+  if (alreadyLinked) {
     return false;
   }
 
+  const rewardKC = 100;
+
   user.appNames.push(cleanAppName);
-  user.kc += 100;
+
+  user.appRewards.push({
+    appName: cleanAppName,
+    kcEarned: rewardKC,
+    linkedAt: new Date()
+  });
+
+  user.kc += rewardKC;
 
   return true;
 }
@@ -86,26 +100,39 @@ router.post("/register", async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-   const user = await User.create({
-    name,
-    email: email.toLowerCase(),
-    password: hashedPassword,
-    deviceId,
-    appNames: [appName],
-    kc: 100,
-    avatar:0
+   const cleanAppName = appName.trim();
+const firstAppReward = 100;
+
+const user = await User.create({
+  name: name.trim(),
+  email: email.toLowerCase().trim(),
+  password: hashedPassword,
+  deviceId,
+  appNames: [cleanAppName],
+
+  appRewards: [
+    {
+      appName: cleanAppName,
+      kcEarned: firstAppReward,
+      linkedAt: new Date()
+    }
+  ],
+
+  kc: firstAppReward,
+  avatar: 0
 });
 
-    return res.json({
-      success: true,
-      message: "Registration successful",
-      userId: user._id,
-      name: user.name,
-      email:user.email,
-       kc: user.kc,
-       avatar: user.avatar,
-      appNames: user.appNames
-    });
+   return res.json({
+  success: true,
+  message: "Registration successful",
+  userId: user._id,
+  name: user.name,
+  email: user.email,
+  kc: user.kc,
+  avatar: user.avatar,
+  appNames: user.appNames,
+  appRewards: user.appRewards
+});
 
   } catch (error) {
     return res.json({
@@ -173,6 +200,7 @@ if (isNewAppAdded) {
   kc: user.kc,
   avatar: user.avatar,
   appNames: user.appNames,
+  appRewards: user.appRewards,
   isNewAppAdded
 });
 
@@ -214,6 +242,7 @@ router.post("/me", async (req, res) => {
       token: "",
        kc: user.kc,
        avatar: user.avatar,
+       appRewards: user.appRewards
       appNames: user.appNames
     });
 
@@ -252,8 +281,9 @@ router.post("/check-device", async (req, res) => {
       userId: user._id,
       name: user.name,
       email: user.email,
-       kc: user.kc,
-       avatar: user.avatar,
+      kc: user.kc,
+      avatar: user.avatar,
+      appRewards: user.appRewards,
       appNames: user.appNames
     });
 
@@ -317,6 +347,7 @@ router.post("/confirm-device-login", async (req, res) => {
       kc: user.kc,
       avatar: user.avatar,
       appNames: user.appNames,
+      appRewards: user.appRewards,
       isNewAppAdded
     });
 
