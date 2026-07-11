@@ -119,7 +119,8 @@ const user = await User.create({
   ],
 
   kc: firstAppReward,
-  avatar: 0
+  avatar: null,
+  ca: false
 });
 
    return res.json({
@@ -131,6 +132,7 @@ const user = await User.create({
   kc: user.kc,
   avatar: user.avatar,
   appNames: user.appNames,
+  ca: user.ca,
   appRewards: user.appRewards
 });
 
@@ -200,6 +202,7 @@ if (isNewAppAdded) {
   kc: user.kc,
   avatar: user.avatar,
   appNames: user.appNames,
+  ca: user.ca,
   appRewards: user.appRewards,
   isNewAppAdded
 });
@@ -240,9 +243,10 @@ router.post("/me", async (req, res) => {
       name: user.name,
       email: user.email,
       token: "",
-       kc: user.kc,
-       avatar: user.avatar,
-       appRewards: user.appRewards,
+      kc: user.kc,
+      avatar: user.avatar,
+      appRewards: user.appRewards,
+      ca: user.ca,
       appNames: user.appNames
     });
 
@@ -284,6 +288,7 @@ router.post("/check-device", async (req, res) => {
       kc: user.kc,
       avatar: user.avatar,
       appRewards: user.appRewards,
+      ca: user.ca,
       appNames: user.appNames
     });
 
@@ -348,6 +353,7 @@ router.post("/confirm-device-login", async (req, res) => {
       avatar: user.avatar,
       appNames: user.appNames,
       appRewards: user.appRewards,
+      ca: user.ca,
       isNewAppAdded
     });
 
@@ -406,6 +412,7 @@ if (isNewAppAdded) {
   kc: user.kc,
   avatar: user.avatar,
   appNames: user.appNames,
+  ca: user.ca,
   isNewAppAdded
 });
 
@@ -463,6 +470,7 @@ router.post("/update-profile", async (req, res) => {
 
     user.name = cleanName;
     user.avatar = avatar;
+    user.ca = true;
 
     await user.save();
 
@@ -474,6 +482,7 @@ router.post("/update-profile", async (req, res) => {
       email: user.email,
       kc: user.kc,
       avatar: user.avatar,
+      ca: user.ca,
       appNames: user.appNames
     });
 
