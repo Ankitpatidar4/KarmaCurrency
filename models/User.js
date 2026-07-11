@@ -64,10 +64,12 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
-     ca: {
-     type: Boolean,
-     default: false
+
+    ca: {
+      type: Boolean,
+      default: false
     },
+
     avatar: {
       type: Number,
       default: 0
