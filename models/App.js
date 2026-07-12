@@ -15,6 +15,13 @@ const appSchema = new mongoose.Schema(
       trim: true
     },
 
+      dl: {
+      type: String,
+      required: true,
+      trim: true
+    },
+
+
     appIcon: {
       type: String,
       required: true,

@@ -19,6 +19,7 @@ router.get("/list", async (req, res) => {
         appId: app._id.toString(),
         appName: app.appName,
         appUrl: app.appUrl,
+        dl:app.dl,
         appIcon: app.appIcon,
         appDetail: app.appDetail
       }))
