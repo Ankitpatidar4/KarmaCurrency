@@ -9,7 +9,7 @@ router.get("/list", async (req, res) => {
       isActive: true
     })
       .sort({ createdAt: -1 })
-      .select("_id appName appUrl appIcon appDetail");
+      .select("_id appName appUrl appIcon appDetail dl");
 
     return res.status(200).json({
       success: true,
