@@ -73,6 +73,13 @@ const userSchema = new mongoose.Schema(
     avatar: {
       type: Number,
       default: 0
+    },
+
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      default: null
     }
   },
   {
@@ -80,4 +87,7 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-module.exports = mongoose.model("User", userSchema);
+module.exports = mongoose.model(
+  "User",
+  userSchema
+);

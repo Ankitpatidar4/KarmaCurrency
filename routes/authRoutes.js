@@ -2,6 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const { firebaseAuth} = require("../config/firebaseAdmin");
 
 const router = express.Router();
 
@@ -785,5 +786,280 @@ router.post("/add-kc", async (req, res) => {
     });
   }
 });
+
+router.post(
+  "/google-login",
+  async (req, res) => {
+    try {
+      const {
+        firebaseIdToken,
+        deviceId,
+        appName
+      } = req.body;
+
+      console.log(
+        "Google Login Request:",
+        {
+          deviceId,
+          appName,
+          hasFirebaseToken:
+            !!firebaseIdToken
+        }
+      );
+
+      if (!firebaseIdToken) {
+        return res.json({
+          success: false,
+          message:
+            "Firebase ID Token is required"
+        });
+      }
+
+      if (!appName) {
+        return res.json({
+          success: false,
+          message:
+            "AppName is required"
+        });
+      }
+
+      const decodedToken =
+        await firebaseAuth.verifyIdToken(
+          firebaseIdToken
+        );
+
+      console.log(
+        "Firebase Token Verified:",
+        {
+          uid: decodedToken.uid,
+          email: decodedToken.email,
+          name: decodedToken.name
+        }
+      );
+
+      if (
+        !decodedToken.firebase ||
+        decodedToken.firebase.sign_in_provider !==
+          "google.com"
+      ) {
+        return res.json({
+          success: false,
+          message:
+            "This token is not from Google Sign-In"
+        });
+      }
+
+      const googleId =
+        decodedToken.uid;
+
+      const email =
+        decodedToken.email
+          ? decodedToken.email
+              .toLowerCase()
+              .trim()
+          : "";
+
+      const nameFromGoogle =
+        decodedToken.name ||
+        (
+          email
+            ? email.split("@")[0]
+            : "Karma User"
+        );
+
+      if (!email) {
+        return res.json({
+          success: false,
+          message:
+            "Google account email not available"
+        });
+      }
+
+      let user =
+        await User.findOne({
+          googleId
+        });
+
+      let isNewUser = false;
+
+      if (!user) {
+        user =
+          await User.findOne({
+            email
+          });
+      }
+
+      if (!user) {
+        let finalName =
+          nameFromGoogle.trim();
+
+        if (!finalName) {
+          finalName =
+            "Karma User";
+        }
+
+        let nameExists =
+          await User.findOne({
+            name: finalName
+          });
+
+        if (nameExists) {
+          finalName =
+            finalName +
+            "_" +
+            Math.floor(
+              1000 +
+              Math.random() * 9000
+            );
+        }
+
+        user =
+          new User({
+            name: finalName,
+
+            email: email,
+
+            password:
+              await bcrypt.hash(
+                Math.random()
+                  .toString(36) +
+                Date.now(),
+                10
+              ),
+
+            deviceId:
+              deviceId || "",
+
+            appNames: [],
+
+            appRewards: [],
+
+            kc: 0,
+
+            ca: false,
+
+            avatar: 0,
+
+            googleId: googleId
+          });
+
+        isNewUser = true;
+      } else {
+        user.googleId =
+          googleId;
+
+        if (
+          deviceId &&
+          !user.deviceId
+        ) {
+          user.deviceId =
+            deviceId;
+        }
+      }
+
+      if (
+        deviceId &&
+        user.deviceId !== deviceId
+      ) {
+        user.deviceId =
+          deviceId;
+      }
+
+      const isNewAppAdded =
+        addAppName(
+          user,
+          appName
+        );
+
+      await user.save();
+
+      const token =
+        jwt.sign(
+          {
+            userId: user._id,
+            name: user.name
+          },
+          process.env.JWT_SECRET,
+          {
+            expiresIn: "7d"
+          }
+        );
+
+      console.log(
+        "Google Login Success:",
+        {
+          userId:
+            user._id.toString(),
+
+          name:
+            user.name,
+
+          email:
+            user.email,
+
+          appName,
+
+          isNewUser,
+
+          isNewAppAdded,
+
+          kc:
+            user.kc
+        }
+      );
+
+      return res.json({
+        success: true,
+
+        message:
+          isNewUser
+            ? "Google account registered successfully"
+            : "Google login successful",
+
+        userId:
+          user._id,
+
+        name:
+          user.name,
+
+        email:
+          user.email,
+
+        token,
+
+        kc:
+          user.kc,
+
+        avatar:
+          user.avatar,
+
+        ca:
+          user.ca,
+
+        isNewAppAdded,
+
+        appNames:
+          user.appNames,
+
+        appRewards:
+          user.appRewards
+      });
+
+    } catch (error) {
+      console.error(
+        "Google login error:",
+        error
+      );
+
+      return res.status(401).json({
+        success: false,
+        message:
+          "Google authentication failed",
+        error:
+          error.message
+      });
+    }
+  }
+);
 
 module.exports = router;
