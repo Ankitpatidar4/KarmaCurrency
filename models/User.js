@@ -55,6 +55,12 @@ const userSchema = new mongoose.Schema(
       default: []
     },
 
+    isLoggedIn:
+     {
+        type: Boolean,
+        default: false
+    },
+
     appRewards: {
       type: [appRewardSchema],
       default: []

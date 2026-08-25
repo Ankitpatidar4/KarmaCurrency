@@ -277,8 +277,9 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const isNewAppAdded =
-      addAppName(user, appName);
+    const isNewAppAdded = addAppName(user, appName);
+
+    user.isLoggedIn = true;
 
     if (isNewAppAdded) {
       await user.save();
@@ -401,8 +402,9 @@ router.post("/check-device", async (req, res) => {
 
     return res.json({
       success: true,
-      message:
-        "Account found on this device",
+      message: "Account found on this device",
+      isLoggedIn: user.isLoggedIn,
+      requireLogin: !user.isLoggedIn,
       userId: user._id,
       name: user.name,
       email: user.email,
@@ -454,7 +456,14 @@ router.post(
             "No account found on this device"
         });
       }
-
+      if (!user.isLoggedIn) {
+        return res.json({
+          success: false,
+          message: "User logged out. Manual login required.",
+          requireLogin: true
+        });
+      }
+      
       const isNewAppAdded =
         addAppName(user, appName);
 
@@ -529,6 +538,15 @@ router.post(
       const user = await User.findOne({
         deviceId
       });
+
+      if (!user.isLoggedIn) {
+       return res.json({
+       success: false,
+       message: "User is logged out. Please login manually.",
+       requireLogin: true
+      });
+} 
+
 
       if (!user) {
         return res.json({
@@ -965,11 +983,9 @@ router.post(
           deviceId;
       }
 
-      const isNewAppAdded =
-        addAppName(
-          user,
-          appName
-        );
+      const isNewAppAdded =  addAppName(user,appName);
+      
+      user.isLoggedIn = true;
 
       await user.save();
 
@@ -1061,5 +1077,47 @@ router.post(
     }
   }
 );
+
+
+
+router.post("/logout", async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.json({
+        success: false,
+        message: "UserId is required"
+      });
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // IMPORTANT
+    user.isLoggedIn = false;
+
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: "Logout successful"
+    });
+
+  } catch (error) {
+    console.error("Logout error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
 
 module.exports = router;
