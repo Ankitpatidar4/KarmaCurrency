@@ -232,30 +232,21 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const {
-      name,
+      email,
       password,
+      deviceId,
       appName
     } = req.body;
 
-    if (!name || !password || !appName) {
+    if (!email || !password) {
       return res.json({
         success: false,
-        message:
-          "Name, password and appName are required"
+        message: "Email and password are required"
       });
     }
 
-    const cleanLoginName = name.trim();
-
     const user = await User.findOne({
-      $or: [
-        {
-          name: cleanLoginName
-        },
-        {
-          email: cleanLoginName.toLowerCase()
-        }
-      ]
+      email: email.toLowerCase().trim()
     });
 
     if (!user) {
@@ -265,58 +256,79 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const isMatch =
-      await bcrypt.compare(
-        password,
-        user.password
-      );
-
-    if (!isMatch) {
+    if (user.password !== password) {
       return res.json({
         success: false,
-        message: "Wrong password"
+        message: "Invalid password"
       });
     }
 
-    const isNewAppAdded = addAppName(user, appName);
-
     user.isLoggedIn = true;
 
-    if (isNewAppAdded) {
-      await user.save();
+    if (deviceId) {
+      user.deviceId = deviceId;
     }
+
+    let isNewAppAdded = false;
+
+    if (appName) {
+      if (!user.appNames) {
+        user.appNames = [];
+      }
+
+      if (!user.appNames.includes(appName)) {
+        user.appNames.push(appName);
+        isNewAppAdded = true;
+      }
+    }
+
+    await user.save();
+
+   
+    console.log("=================================");
+    console.log("LOGIN SUCCESS");
+    console.log("User ID:", user._id.toString());
+    console.log("isLoggedIn:", user.isLoggedIn);
+    console.log("=================================");
+
+   
 
     const token = jwt.sign(
       {
-        userId: user._id,
-        name: user.name
+        userId: user._id.toString()
       },
-      process.env.JWT_SECRET,
+      JWT_SECRET,
       {
         expiresIn: "7d"
       }
     );
 
+   
+
     return res.json({
       success: true,
-
-      message: isNewAppAdded
-        ? "New app linked. You received 100 KC."
-        : "Login successful",
+      message: "Login successful",
 
       userId: user._id,
       name: user.name,
       email: user.email,
-      token,
+      token: token,
+
       kc: user.kc,
       avatar: user.avatar,
       ca: user.ca,
-      appNames: user.appNames,
-      appRewards: user.appRewards,
-      isNewAppAdded
+
+      isLoggedIn: user.isLoggedIn,
+
+      isNewAppAdded: isNewAppAdded,
+
+      appNames: user.appNames || [],
+      appRewards: user.appRewards || []
     });
+
   } catch (error) {
-    console.error("Login error:", error);
+
+    console.error("LOGIN ERROR:", error);
 
     return res.status(500).json({
       success: false,
