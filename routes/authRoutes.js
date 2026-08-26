@@ -184,7 +184,7 @@ router.post("/register", async (req, res) => {
       email: cleanEmail,
       password: hashedPassword,
       deviceId,
-
+      
       appNames: [
         cleanAppName
       ],
@@ -196,10 +196,11 @@ router.post("/register", async (req, res) => {
           linkedAt: new Date()
         }
       ],
-
+      
       kc: firstAppReward,
       avatar: 0,
-      ca: false
+      ca: false,
+      isLoggedIn : true,
     });
 
     return res.json({
