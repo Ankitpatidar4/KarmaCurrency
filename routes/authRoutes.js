@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { firebaseAuth} = require("../config/firebaseAdmin");
 const avatarFrames = require("../config/avatarFrames"); 
-const DEFAULT_FRAME_ID = "frame_1";
+const DEFAULT_FRAME_ID = "frame_0";
 const router = express.Router();
 
 /*
