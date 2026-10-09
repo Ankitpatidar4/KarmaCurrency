@@ -5,6 +5,7 @@ const User = require("../models/User");
 const { firebaseAuth} = require("../config/firebaseAdmin");
 const avatarFrames = require("../config/avatarFrames"); 
 const DEFAULT_FRAME_ID = "frame_0";
+const {karmaRanks,getRankData} = require("../config/karmaRanks");
 const router = express.Router();
 
 /*
@@ -215,7 +216,8 @@ router.post("/register", async (req, res) => {
       ca: user.ca,
       appNames: user.appNames,
       appRewards: user.appRewards,
-      selectedFrameId : user.selectedFrameId
+      selectedFrameId : user.selectedFrameId,
+      ...getRankData(user.kc)
     });
   } catch (error) {
     console.error("Register error:", error);
@@ -314,7 +316,8 @@ router.post("/login", async (req, res) => {
       appNames: user.appNames,
       appRewards: user.appRewards,
       isNewAppAdded,
-      selectedFrameId : user.selectedFrameId
+      selectedFrameId : user.selectedFrameId,
+      ...getRankData(user.kc)
     });
   } catch (error) {
     console.error("Login error:", error);
@@ -364,7 +367,8 @@ router.post("/me", async (req, res) => {
       ca: user.ca,
       appNames: user.appNames,
       appRewards: user.appRewards,
-      selectedFrameId : user.selectedFrameId
+      selectedFrameId : user.selectedFrameId,
+      ...getRankData(user.kc)
     });
   } catch (error) {
     console.error("Get user error:", error);
@@ -416,7 +420,8 @@ router.post("/check-device", async (req, res) => {
       ca: user.ca,
       appNames: user.appNames,
       appRewards: user.appRewards,
-      selectedFrameId : user.selectedFrameId
+      selectedFrameId : user.selectedFrameId,
+      ...getRankData(user.kc)
     });
   } catch (error) {
     console.error("Check device error:", error);
@@ -503,7 +508,8 @@ router.post(
         appNames: user.appNames,
         appRewards: user.appRewards,
         isNewAppAdded,
-      selectedFrameId : user.selectedFrameId
+      selectedFrameId : user.selectedFrameId,
+      ...getRankData(user.kc)
       });
     } catch (error) {
       console.error(
@@ -596,7 +602,8 @@ router.post(
         appNames: user.appNames,
         appRewards: user.appRewards,
         isNewAppAdded,
-      selectedFrameId : user.selectedFrameId
+      selectedFrameId : user.selectedFrameId,
+      ...getRankData(user.kc)
       });
     } catch (error) {
       console.error(
@@ -799,7 +806,8 @@ router.post("/add-kc", async (req, res) => {
       appRewards: user.appRewards,
       addedKC: cleanRewardKC,
       rewardedApp: appName.trim(),
-      selectedFrameId : user.selectedFrameId
+      selectedFrameId : user.selectedFrameId,
+      ...getRankData(user.kc)
     });
   } catch (error) {
     console.error("Add KC error:", error);
@@ -1066,7 +1074,8 @@ router.post(
 
         appRewards:
           user.appRewards,
-      selectedFrameId : user.selectedFrameId
+      selectedFrameId : user.selectedFrameId,
+      ...getRankData(user.kc)
       });
 
     } catch (error) {
@@ -1308,6 +1317,61 @@ router.post("/unlock-avatar-frame", async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Unable to unlock frame"
+    });
+  }
+});
+
+// Karma Rank
+
+router.post("/karma-ranks", async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (
+      typeof userId !== "string" ||
+      !/^[a-fA-F0-9]{24}$/.test(userId)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid userId is required"
+      });
+    }
+
+    const user = await User.findById(userId)
+      .select("kc")
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    const rankData = getRankData(user.kc);
+
+    const ranks = karmaRanks.map(item => ({
+      rank: item.rank,
+      totalRanks: karmaRanks.length,
+      rankText: `${item.rank} of ${karmaRanks.length}`,
+      requiredKC: item.requiredKC,
+      isAchieved: rankData.kc >= item.requiredKC,
+      isCurrent: rankData.rank === item.rank
+    }));
+
+    return res.json({
+      success: true,
+      message: "Karma ranks loaded",
+      userId: user._id,
+      ...rankData,
+      ranks
+    });
+  } catch (error) {
+    console.error("Karma ranks error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load karma ranks"
     });
   }
 });
