@@ -214,7 +214,8 @@ router.post("/register", async (req, res) => {
       avatar: user.avatar,
       ca: user.ca,
       appNames: user.appNames,
-      appRewards: user.appRewards
+      appRewards: user.appRewards,
+      selectedFrameId : user.selectedFrameId
     });
   } catch (error) {
     console.error("Register error:", error);
@@ -312,7 +313,8 @@ router.post("/login", async (req, res) => {
       ca: user.ca,
       appNames: user.appNames,
       appRewards: user.appRewards,
-      isNewAppAdded
+      isNewAppAdded,
+      selectedFrameId : user.selectedFrameId
     });
   } catch (error) {
     console.error("Login error:", error);
@@ -361,7 +363,8 @@ router.post("/me", async (req, res) => {
       avatar: user.avatar,
       ca: user.ca,
       appNames: user.appNames,
-      appRewards: user.appRewards
+      appRewards: user.appRewards,
+      selectedFrameId : user.selectedFrameId
     });
   } catch (error) {
     console.error("Get user error:", error);
@@ -412,7 +415,8 @@ router.post("/check-device", async (req, res) => {
       avatar: user.avatar,
       ca: user.ca,
       appNames: user.appNames,
-      appRewards: user.appRewards
+      appRewards: user.appRewards,
+      selectedFrameId : user.selectedFrameId
     });
   } catch (error) {
     console.error("Check device error:", error);
@@ -498,7 +502,8 @@ router.post(
         ca: user.ca,
         appNames: user.appNames,
         appRewards: user.appRewards,
-        isNewAppAdded
+        isNewAppAdded,
+      selectedFrameId : user.selectedFrameId
       });
     } catch (error) {
       console.error(
@@ -590,7 +595,8 @@ router.post(
         ca: user.ca,
         appNames: user.appNames,
         appRewards: user.appRewards,
-        isNewAppAdded
+        isNewAppAdded,
+      selectedFrameId : user.selectedFrameId
       });
     } catch (error) {
       console.error(
@@ -792,7 +798,8 @@ router.post("/add-kc", async (req, res) => {
       appNames: user.appNames,
       appRewards: user.appRewards,
       addedKC: cleanRewardKC,
-      rewardedApp: appName.trim()
+      rewardedApp: appName.trim(),
+      selectedFrameId : user.selectedFrameId
     });
   } catch (error) {
     console.error("Add KC error:", error);
@@ -1058,7 +1065,8 @@ router.post(
           user.appNames,
 
         appRewards:
-          user.appRewards
+          user.appRewards,
+      selectedFrameId : user.selectedFrameId
       });
 
     } catch (error) {
