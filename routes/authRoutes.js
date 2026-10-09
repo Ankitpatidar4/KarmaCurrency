@@ -8,6 +8,52 @@ const DEFAULT_FRAME_ID = "frame_0";
 const {karmaRanks,getRankData} = require("../config/karmaRanks");
 const router = express.Router();
 
+
+function requireKarmaUser(req, res, next) {
+  const header = req.headers.authorization || "";
+
+  if (!header.startsWith("Bearer ")) {
+    return res.status(401).json({
+      success: false,
+      message: "Login token is required"
+    });
+  }
+
+  let decoded;
+
+  try {
+    decoded = jwt.verify(
+      header.slice(7).trim(),
+      process.env.JWT_SECRET
+    );
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: "Invalid or expired token. Please login again."
+    });
+  }
+
+  const userId = String(decoded.userId || "");
+
+  if (!/^[a-fA-F0-9]{24}$/.test(userId)) {
+    return res.status(401).json({
+      success: false,
+      message: "Invalid token user"
+    });
+  }
+
+  if (req.body && req.body.userId &&
+      req.body.userId !== userId) {
+    return res.status(403).json({
+      success: false,
+      message: "Account mismatch"
+    });
+  }
+
+  req.karmaUserId = userId;
+  return next();
+}
+
 /*
  * Kisi app ki existing reward value me KC add karega.
  * Agar appRewards me app nahi hai to new entry banayega.
