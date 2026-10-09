@@ -23,6 +23,51 @@ const appRewardSchema = new mongoose.Schema(
   }
 );
 
+const karmaDeductionSchema = new mongoose.Schema(
+  {
+    requestId: {
+      type: String,
+      required: true
+    },
+
+    scope: {
+      type: String,
+      enum: ["APP", "GLOBAL"],
+      required: true
+    },
+
+    appName: {
+      type: String,
+      default: "",
+      trim: true
+    },
+
+    amount: {
+      type: Number,
+      required: true,
+      min: 0
+    },
+
+    reason: {
+      type: String,
+      required: true
+    },
+
+    itemId: {
+      type: String,
+      required: true
+    },
+
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  {
+    _id: false
+  }
+);
+
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -55,10 +100,9 @@ const userSchema = new mongoose.Schema(
       default: []
     },
 
-    isLoggedIn:
-     {
-        type: Boolean,
-        default: false
+    isLoggedIn: {
+      type: Boolean,
+      default: false
     },
 
     appRewards: {
@@ -91,6 +135,11 @@ const userSchema = new mongoose.Schema(
       default: ["frame_0"]
     },
 
+    karmaDeductions: {
+      type: [karmaDeductionSchema],
+      default: []
+    },
+
     googleId: {
       type: String,
       unique: true,
@@ -99,11 +148,9 @@ const userSchema = new mongoose.Schema(
     }
   },
   {
-    timestamps: true
+    timestamps: true,
+    optimisticConcurrency: true
   }
 );
 
-module.exports = mongoose.model(
-  "User",
-  userSchema
-);
+module.exports = mongoose.model("User", userSchema);

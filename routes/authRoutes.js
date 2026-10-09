@@ -1376,4 +1376,195 @@ router.post("/karma-ranks", async (req, res) => {
   }
 });
 
+
+router.post(
+  "/subtract-kc",
+  requireKarmaUser,
+  async (req, res) => {
+    try {
+      const userId = req.karmaUserId;
+
+      const {
+        appName,
+        subtractKC,
+        reason,
+        requestId
+      } = req.body;
+
+      const cleanAppName =
+        typeof appName === "string" ? appName.trim() : "";
+
+      const cleanReason =
+        typeof reason === "string" ? reason.trim() : "";
+
+      if (!cleanAppName || cleanAppName.length > 150) {
+        return res.status(400).json({
+          success: false,
+          message: "Valid appName is required"
+        });
+      }
+
+      if (
+        typeof subtractKC !== "number" ||
+        !Number.isSafeInteger(subtractKC) ||
+        subtractKC <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "subtractKC must be a positive integer"
+        });
+      }
+
+      if (!cleanReason || cleanReason.length > 500) {
+        return res.status(400).json({
+          success: false,
+          message: "Deduction reason is required"
+        });
+      }
+
+      if (
+        typeof requestId !== "string" ||
+        !/^[a-zA-Z0-9_-]{8,100}$/.test(requestId)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Valid requestId is required"
+        });
+      }
+
+      const user = await User.findById(userId);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found"
+        });
+      }
+
+      // Existing account me app ka stored spelling use karo.
+      const knownNames = [
+        ...(user.appNames || []),
+        ...(user.appRewards || []).map(item => item.appName)
+      ];
+
+      const storedAppName = knownNames.find(name =>
+        typeof name === "string" &&
+        name.trim().toLowerCase() === cleanAppName.toLowerCase()
+      );
+
+      const deductionAppName = storedAppName
+        ? storedAppName.trim()
+        : cleanAppName;
+
+      function replyIfProcessed(latestUser) {
+        const existing = (latestUser.karmaDeductions || [])
+          .find(item => item.requestId === requestId);
+
+        if (!existing)
+          return false;
+
+        const sameRequest =
+          existing.scope === "APP" &&
+          existing.appName.toLowerCase() ===
+            deductionAppName.toLowerCase() &&
+          existing.amount === subtractKC &&
+          existing.reason === cleanReason;
+
+        if (!sameRequest) {
+          res.status(409).json({
+            success: false,
+            message: "Request ID already used for another deduction"
+          });
+        } else {
+          res.json({
+            ...profileResponse(latestUser, "Deduction already processed"),
+            deductedApp: existing.appName,
+            deductedKC: existing.amount,
+            deductionReason: existing.reason,
+            requestId,
+            alreadyProcessed: true
+          });
+        }
+
+        return true;
+      }
+
+      if (replyIfProcessed(user))
+        return;
+
+      const updatedUser = await User.findOneAndUpdate(
+        {
+          _id: userId,
+          kc: { $gte: subtractKC },
+          "karmaDeductions.requestId": { $ne: requestId }
+        },
+        {
+          $inc: {
+            kc: -subtractKC,
+            __v: 1
+          },
+          $push: {
+            karmaDeductions: {
+              requestId,
+              scope: "APP",
+              appName: deductionAppName,
+              amount: subtractKC,
+              reason: cleanReason,
+
+              // Existing schema me itemId required hai.
+              // Generic deduction ke liye requestId use kar rahe hain.
+              itemId: requestId,
+              createdAt: new Date()
+            }
+          }
+        },
+        {
+          new: true,
+          runValidators: true
+        }
+      );
+
+      if (!updatedUser) {
+        const latestUser = await User.findById(userId);
+
+        if (!latestUser) {
+          return res.status(404).json({
+            success: false,
+            message: "User not found"
+          });
+        }
+
+        if (replyIfProcessed(latestUser))
+          return;
+
+        return res.status(400).json({
+          success: false,
+          message: "Not enough Karma",
+          kc: latestUser.kc,
+          requiredKC: subtractKC
+        });
+      }
+
+      return res.json({
+        ...profileResponse(
+          updatedUser,
+          `${subtractKC} KC deducted successfully`
+        ),
+        deductedApp: deductionAppName,
+        deductedKC: subtractKC,
+        deductionReason: cleanReason,
+        requestId,
+        alreadyProcessed: false
+      });
+    } catch (error) {
+      console.error("Subtract KC error:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Unable to deduct Karma"
+      });
+    }
+  }
+);
+
 module.exports = router;
