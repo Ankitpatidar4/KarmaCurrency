@@ -83,7 +83,12 @@ const userSchema = new mongoose.Schema(
 
     selectedFrameId: {
       type: String,
-      default: ""
+      default: "frame_1"
+    },
+
+    unlockedFrameIds: {
+      type: [String],
+      default: ["frame_1"]
     },
 
     googleId: {

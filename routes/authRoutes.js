@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { firebaseAuth} = require("../config/firebaseAdmin");
 const avatarFrames = require("../config/avatarFrames"); 
-
+const DEFAULT_FRAME_ID = "frame_1";
 const router = express.Router();
 
 /*
@@ -610,107 +610,107 @@ router.post(
 /*
  * UPDATE PROFILE
  */
-router.post(
-  "/update-profile",
-  async (req, res) => {
-    try {
-      const {
-        userId,
-        name,
-        avatar
-      } = req.body;
+router.post("/update-profile", async (req, res) => {
+  try {
+    const {
+      userId,
+      name,
+      avatar,
+      selectedFrameId
+    } = req.body;
 
-      if (!userId) {
-        return res.json({
-          success: false,
-          message: "UserId is required"
-        });
-      }
-
-      const cleanName =
-        typeof name === "string"
-          ? name.trim()
-          : "";
-
-      if (!cleanName) {
-        return res.json({
-          success: false,
-          message: "Name is required"
-        });
-      }
-
-      const cleanAvatar =
-        Number(avatar);
-
-      if (
-        !Number.isInteger(cleanAvatar) ||
-        cleanAvatar < 0
-      ) {
-        return res.json({
-          success: false,
-          message: "Invalid avatar"
-        });
-      }
-
-      const user =
-        await User.findById(userId);
-
-      if (!user) {
-        return res.json({
-          success: false,
-          message: "User not found"
-        });
-      }
-
-      const duplicateName =
-        await User.findOne({
-          name: cleanName,
-          _id: {
-            $ne: userId
-          }
-        });
-
-      if (duplicateName) {
-        return res.json({
-          success: false,
-          message:
-            "Username already registered"
-        });
-      }
-
-      user.name = cleanName;
-      user.avatar = cleanAvatar;
-      user.ca = true;
-
-      await user.save();
-
-      return res.json({
-        success: true,
-        message:
-          "Profile updated successfully",
-        userId: user._id,
-        name: user.name,
-        email: user.email,
-        kc: user.kc,
-        avatar: user.avatar,
-        ca: user.ca,
-        appNames: user.appNames,
-        appRewards: user.appRewards
-      });
-    } catch (error) {
-      console.error(
-        "Update profile error:",
-        error
-      );
-
-      return res.status(500).json({
+    if (!isValidUserId(userId)) {
+      return res.status(400).json({
         success: false,
-        message: "Server error",
-        error: error.message
+        message: "Valid userId is required"
       });
     }
+
+    const cleanName = typeof name === "string" ? name.trim() : "";
+
+    if (cleanName.length < 3) {
+      return res.status(400).json({
+        success: false,
+        message: "Name must contain at least 3 characters"
+      });
+    }
+
+    if (
+      typeof avatar !== "number" ||
+      !Number.isInteger(avatar) ||
+      avatar < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid avatar"
+      });
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Older clients frame field na bheje to existing selection retain karo.
+    const frameId = selectedFrameId === undefined
+      ? getSelectedFrameId(user)
+      : selectedFrameId;
+
+    const frame = avatarFrames.find(
+      item => item.frameId === frameId
+    );
+
+    if (!frame || !frame.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: "Selected frame is unavailable"
+      });
+    }
+
+    if (!getUnlockedFrameIds(user).includes(frameId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Unlock this frame before selecting it"
+      });
+    }
+
+    const duplicateName = await User.findOne({
+      name: cleanName,
+      _id: { $ne: userId }
+    });
+
+    if (duplicateName) {
+      return res.status(409).json({
+        success: false,
+        message: "Username already registered"
+      });
+    }
+
+    user.name = cleanName;
+    user.avatar = avatar;
+    user.selectedFrameId = frameId;
+    user.ca = true;
+
+    await user.save();
+
+    return res.json(
+      profileResponse(user, "Profile updated successfully")
+    );
+  } catch (error) {
+    console.error("Update profile error:", error);
+
+    return res.status(error.code === 11000 ? 409 : 500).json({
+      success: false,
+      message: error.code === 11000
+        ? "Username already registered"
+        : "Unable to update profile"
+    });
   }
-);
+});
 
 // Add KC
 router.post("/add-kc", async (req, res) => {
@@ -1121,24 +1121,56 @@ router.post("/logout", async (req, res) => {
 });
 
 // AvatarFrames
+function getUnlockedFrameIds(user) {
+  return [
+    ...new Set([
+      DEFAULT_FRAME_ID,
+      ...(user.unlockedFrameIds || [])
+    ])
+  ];
+}
 
+function getSelectedFrameId(user) {
+  return user.selectedFrameId || DEFAULT_FRAME_ID;
+}
+
+
+function profileResponse(user, message) {
+  return {
+    success: true,
+    message,
+    userId: user._id,
+    name: user.name,
+    email: user.email,
+    kc: user.kc,
+    avatar: user.avatar,
+    ca: user.ca,
+    appNames: user.appNames,
+    appRewards: user.appRewards,
+    selectedFrameId: getSelectedFrameId(user),
+    unlockedFrameIds: getUnlockedFrameIds(user)
+  };
+}
+
+
+function isValidUserId(userId) {
+  return typeof userId === "string" &&
+    /^[a-fA-F0-9]{24}$/.test(userId);
+}
+
+// GET ALL FRAMES WITH USER STATUS
 router.post("/avatar-frames", async (req, res) => {
   try {
     const { userId } = req.body;
 
-    if (
-      typeof userId !== "string" ||
-      !/^[a-fA-F0-9]{24}$/.test(userId)
-    ) {
+    if (!isValidUserId(userId)) {
       return res.status(400).json({
         success: false,
         message: "Valid userId is required"
       });
     }
 
-    const user = await User.findById(userId)
-      .select("kc selectedFrameId")
-      .lean();
+    const user = await User.findById(userId);
 
     if (!user) {
       return res.status(404).json({
@@ -1147,23 +1179,24 @@ router.post("/avatar-frames", async (req, res) => {
       });
     }
 
-    const kc = Number(user.kc || 0);
-    const selectedFrameId = user.selectedFrameId || "";
+    const unlockedFrameIds = getUnlockedFrameIds(user);
+    const selectedFrameId = getSelectedFrameId(user);
 
     const frames = avatarFrames.map(frame => ({
       frameId: frame.frameId,
       frameName: frame.frameName,
       unlockKC: frame.unlockKC,
       isActive: frame.isActive,
-      isLocked: kc < frame.unlockKC,
+      isLocked: !unlockedFrameIds.includes(frame.frameId),
       isSelected: selectedFrameId === frame.frameId
     }));
 
     return res.json({
       success: true,
       message: "Avatar frames loaded",
-      kc,
+      kc: user.kc,
       selectedFrameId,
+      unlockedFrameIds,
       totalFrames: frames.length,
       lockedFrames: frames.filter(frame => frame.isLocked).length,
       unlockedFrames: frames.filter(frame => !frame.isLocked).length,
@@ -1179,4 +1212,96 @@ router.post("/avatar-frames", async (req, res) => {
     });
   }
 });
+
+// UNLOCK FRAME — SERVER DECIDES PRICE
+router.post("/unlock-avatar-frame", async (req, res) => {
+  try {
+    const { userId, frameId } = req.body;
+
+    if (!isValidUserId(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid userId is required"
+      });
+    }
+
+    const frame = avatarFrames.find(
+      item => item.frameId === frameId
+    );
+
+    if (!frame || !frame.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: "Frame is unavailable"
+      });
+    }
+
+    const existingUser = await User.findById(userId);
+
+    if (!existingUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    if (getUnlockedFrameIds(existingUser).includes(frameId)) {
+      return res.json(
+        profileResponse(existingUser, "Frame is already unlocked")
+      );
+    }
+
+    // Balance deduction aur unlock ek atomic operation hain.
+    // Repeated requests same frame ke liye double charge nahi karengi.
+    const updatedUser = await User.findOneAndUpdate(
+      {
+        _id: userId,
+        kc: { $gte: frame.unlockKC },
+        unlockedFrameIds: { $ne: frameId }
+      },
+      {
+        $inc: { kc: -frame.unlockKC },
+        $addToSet: { unlockedFrameIds: frameId }
+      },
+      {
+        new: true,
+        runValidators: true
+      }
+    );
+
+    if (!updatedUser) {
+      const latestUser = await User.findById(userId);
+
+      if (!latestUser) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found"
+        });
+      }
+
+      if (getUnlockedFrameIds(latestUser).includes(frameId)) {
+        return res.json(
+          profileResponse(latestUser, "Frame is already unlocked")
+        );
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: `You need ${frame.unlockKC} KC to unlock this frame`
+      });
+    }
+
+    return res.json(
+      profileResponse(updatedUser, "Frame unlocked successfully")
+    );
+  } catch (error) {
+    console.error("Unlock frame error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to unlock frame"
+    });
+  }
+});
+
 module.exports = router;
