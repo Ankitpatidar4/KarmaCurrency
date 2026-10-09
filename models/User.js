@@ -81,6 +81,11 @@ const userSchema = new mongoose.Schema(
       default: 0
     },
 
+    selectedFrameId: {
+      type: String,
+      default: ""
+    },
+
     googleId: {
       type: String,
       unique: true,

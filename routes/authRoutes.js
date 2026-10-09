@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { firebaseAuth} = require("../config/firebaseAdmin");
+const avatarFrames = require("../config/avatarFrames"); 
 
 const router = express.Router();
 
@@ -1119,4 +1120,63 @@ router.post("/logout", async (req, res) => {
   }
 });
 
+// AvatarFrames
+
+router.post("/avatar-frames", async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (
+      typeof userId !== "string" ||
+      !/^[a-fA-F0-9]{24}$/.test(userId)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid userId is required"
+      });
+    }
+
+    const user = await User.findById(userId)
+      .select("kc selectedFrameId")
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    const kc = Number(user.kc || 0);
+    const selectedFrameId = user.selectedFrameId || "";
+
+    const frames = avatarFrames.map(frame => ({
+      frameId: frame.frameId,
+      frameName: frame.frameName,
+      unlockKC: frame.unlockKC,
+      isActive: frame.isActive,
+      isLocked: kc < frame.unlockKC,
+      isSelected: selectedFrameId === frame.frameId
+    }));
+
+    return res.json({
+      success: true,
+      message: "Avatar frames loaded",
+      kc,
+      selectedFrameId,
+      totalFrames: frames.length,
+      lockedFrames: frames.filter(frame => frame.isLocked).length,
+      unlockedFrames: frames.filter(frame => !frame.isLocked).length,
+      activeFrames: frames.filter(frame => frame.isActive).length,
+      frames
+    });
+  } catch (error) {
+    console.error("Avatar frames error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load avatar frames"
+    });
+  }
+});
 module.exports = router;
