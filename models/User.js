@@ -139,7 +139,11 @@ const userSchema = new mongoose.Schema(
       type: [karmaDeductionSchema],
       default: []
     },
-
+    xp: {
+      type: Number,
+      default: 0,
+      min: 0
+    },
     googleId: {
       type: String,
       unique: true,

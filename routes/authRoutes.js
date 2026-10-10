@@ -216,7 +216,7 @@ router.post("/register", async (req, res) => {
       appNames: user.appNames,
       appRewards: user.appRewards,
       selectedFrameId : user.selectedFrameId,
-      ...getRankData(user.kc)
+      ...getRankData(user.xp || 0)
     });
   } catch (error) {
     console.error("Register error:", error);
@@ -301,7 +301,7 @@ router.post("/login", async (req, res) => {
       appRewards: user.appRewards,
       isNewAppAdded,
       selectedFrameId : user.selectedFrameId,
-      ...getRankData(user.kc)
+      ...getRankData(user.xp || 0)
     });
   } catch (error) {
     console.error("Login error:", error);
@@ -346,7 +346,7 @@ router.post("/me", async (req, res) => {
       appNames: user.appNames,
       appRewards: user.appRewards,
       selectedFrameId : user.selectedFrameId,
-      ...getRankData(user.kc)
+      ...getRankData(user.xp || 0)
     });
   } catch (error) {
     console.error("Get user error:", error);
@@ -393,7 +393,7 @@ router.post("/check-device", async (req, res) => {
       appNames: user.appNames,
       appRewards: user.appRewards,
       selectedFrameId : user.selectedFrameId,
-      ...getRankData(user.kc)
+      ...getRankData(user.xp || 0)
     });
   } catch (error) {
     console.error("Check device error:", error);
@@ -470,7 +470,7 @@ router.post(
         appRewards: user.appRewards,
         isNewAppAdded,
       selectedFrameId : user.selectedFrameId,
-      ...getRankData(user.kc)
+      ...getRankData(user.xp || 0)
       });
     } catch (error) {
       console.error(
@@ -551,7 +551,7 @@ router.post(
         appRewards: user.appRewards,
         isNewAppAdded,
       selectedFrameId : user.selectedFrameId,
-      ...getRankData(user.kc)
+      ...getRankData(user.xp || 0)
       });
     } catch (error) {
       console.error(
@@ -726,7 +726,7 @@ router.post("/add-kc", async (req, res) => {
       addedKC: cleanRewardKC,
       rewardedApp: appName.trim(),
       selectedFrameId : user.selectedFrameId,
-      ...getRankData(user.kc)
+      ...getRankData(user.xp || 0)
     });
   } catch (error) {
     console.error("Add KC error:", error);
@@ -939,7 +939,7 @@ router.post(
         appRewards:
           user.appRewards,
       selectedFrameId : user.selectedFrameId,
-      ...getRankData(user.kc)
+      ...getRankData(user.xp || 0)
       });
     } catch (error) {
       console.error(
@@ -1013,7 +1013,7 @@ function profileResponse(user, message) {
     appRewards: user.appRewards,
     selectedFrameId: getSelectedFrameId(user),
     unlockedFrameIds: getUnlockedFrameIds(user),
-    ...getRankData(user.kc),
+    ...getRankData(user.xp || 0),
     ...getKarmaLedger(user)
   };
 }
@@ -1164,48 +1164,113 @@ router.post("/unlock-avatar-frame", requireKarmaUser, async (req, res) => {
 router.post("/karma-ranks", async (req, res) => {
   try {
     const { userId } = req.body;
-    if (
-      typeof userId !== "string" ||
-      !/^[a-fA-F0-9]{24}$/.test(userId)
-    ) {
+
+    if (!isValidUserId(userId)) {
       return res.status(400).json({
         success: false,
         message: "Valid userId is required"
       });
     }
+
     const user = await User.findById(userId)
-      .select("kc")
+      .select("kc xp")
       .lean();
+
     if (!user) {
       return res.status(404).json({
         success: false,
         message: "User not found"
       });
     }
-    const rankData = getRankData(user.kc);
+
+    const rankData = getRankData(user.xp || 0);
+
     const ranks = karmaRanks.map(item => ({
       rank: item.rank,
       totalRanks: karmaRanks.length,
       rankText: `${item.rank} of ${karmaRanks.length}`,
-      requiredKC: item.requiredKC,
-      isAchieved: rankData.kc >= item.requiredKC,
+      requiredXP: item.requiredXP,
+      isAchieved: rankData.xp >= item.requiredXP,
       isCurrent: rankData.rank === item.rank
     }));
+
     return res.json({
       success: true,
-      message: "Karma ranks loaded",
+      message: "XP rank loaded",
       userId: user._id,
+
+      kc: user.kc,
+
       ...rankData,
       ranks
     });
   } catch (error) {
-    console.error("Karma ranks error:", error);
+    console.error("XP rank error:", error);
+
     return res.status(500).json({
       success: false,
-      message: "Unable to load karma ranks"
+      message: "Unable to load XP rank"
     });
   }
 });
+
+router.post(
+  "/add-xp",
+  requireKarmaUser,
+  async (req, res) => {
+    try {
+      const userId = req.karmaUserId;
+      const { rewardXP } = req.body;
+
+      if (
+        typeof rewardXP !== "number" ||
+        !Number.isSafeInteger(rewardXP) ||
+        rewardXP <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "rewardXP must be a positive integer"
+        });
+      }
+
+      // Atomic increment: parallel requests increments overwrite nahi karengi.
+      const user = await User.findOneAndUpdate(
+        { _id: userId },
+        {
+          $inc: {
+            xp: rewardXP,
+            __v: 1
+          }
+        },
+        {
+          new: true,
+          runValidators: true
+        }
+      );
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found"
+        });
+      }
+
+      return res.json({
+        ...profileResponse(user, `${rewardXP} XP added successfully`),
+        addedXP: rewardXP
+      });
+    } catch (error) {
+      console.error("Add XP error:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Unable to add XP"
+      });
+    }
+  }
+);
+
+
 router.post(
   "/subtract-kc",
   requireKarmaUser,

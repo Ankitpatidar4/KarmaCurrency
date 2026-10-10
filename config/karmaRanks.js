@@ -1,40 +1,25 @@
 const karmaRanks = [
-  {
-    rank: 5,
-    requiredKC: 0
-  },
-  {
-    rank: 4,
-    requiredKC: 1000
-  },
-  {
-    rank: 3,
-    requiredKC: 3000
-  },
-  {
-    rank: 2,
-    requiredKC: 6000
-  },
-  {
-    rank: 1,
-    requiredKC: 10000
-  }
+  { rank: 5, requiredXP: 0 },
+  { rank: 4, requiredXP: 1000 },
+  { rank: 3, requiredXP: 3000 },
+  { rank: 2, requiredXP: 6000 },
+  { rank: 1, requiredXP: 10000 }
 ];
 
-function getRankData(karma) {
-  const value = Number(karma);
-  const currentKC = Number.isFinite(value)
+function getRankData(experience) {
+  const value = Number(experience);
+
+  const currentXP = Number.isFinite(value)
     ? Math.max(0, value)
     : 0;
 
   let currentIndex = 0;
 
   for (let i = 0; i < karmaRanks.length; i++) {
-    if (currentKC >= karmaRanks[i].requiredKC) {
+    if (currentXP >= karmaRanks[i].requiredXP)
       currentIndex = i;
-    } else {
+    else
       break;
-    }
   }
 
   const current = karmaRanks[currentIndex];
@@ -42,25 +27,24 @@ function getRankData(karma) {
   const totalRanks = karmaRanks.length;
 
   const progress = next
-    ? (currentKC - current.requiredKC) /
-      (next.requiredKC - current.requiredKC)
+    ? (currentXP - current.requiredXP) /
+      (next.requiredXP - current.requiredXP)
     : 1;
 
   return {
-    kc: currentKC,
+    xp: currentXP,
     rank: current.rank,
     totalRanks,
     rankText: `${current.rank} of ${totalRanks}`,
-    requiredKC: current.requiredKC,
+    requiredXP: current.requiredXP,
 
     isMaxRank: next === null,
-    nextRank: next ? next.rank : null,
-    nextRankRequiredKC: next ? next.requiredKC : null,
-    remainingKC: next
-      ? Math.max(0, next.requiredKC - currentKC)
+    nextRank: next ? next.rank : 0,
+    nextRankRequiredXP: next ? next.requiredXP : 0,
+    remainingXP: next
+      ? Math.max(0, next.requiredXP - currentXP)
       : 0,
 
-    // Unity slider ke liye 0–1.
     progress: Math.min(1, Math.max(0, progress))
   };
 }
