@@ -123,6 +123,84 @@ function addAppName(user, appName) {
 /*
  * REGISTER
  */
+// --------------------------------------------------
+// Remove old unique name index
+// --------------------------------------------------
+
+let nameIndexFixPromise = null;
+
+async function ensureNameIsNotUnique() {
+  if (!nameIndexFixPromise) {
+    nameIndexFixPromise = (async () => {
+      const indexes = await User.collection.indexes();
+
+      for (const index of indexes) {
+        const fields = Object.keys(index.key || {});
+
+        const isUniqueNameIndex =
+          index.unique === true &&
+          fields.length === 1 &&
+          fields[0] === "name";
+
+        if (!isUniqueNameIndex) {
+          continue;
+        }
+
+        try {
+          await User.collection.dropIndex(index.name);
+
+          console.log(
+            "[REGISTER] Removed unique name index:",
+            index.name
+          );
+        } catch (error) {
+          // Another server instance may have already removed it.
+          if (
+            error.code !== 27 &&
+            error.codeName !== "IndexNotFound"
+          ) {
+            throw error;
+          }
+        }
+      }
+
+      // Verify that no single-field unique name index remains.
+      const remainingIndexes = await User.collection.indexes();
+
+      const nameStillUnique = remainingIndexes.some(index => {
+        const fields = Object.keys(index.key || {});
+
+        return (
+          index.unique === true &&
+          fields.length === 1 &&
+          fields[0] === "name"
+        );
+      });
+
+      if (nameStillUnique) {
+        throw new Error(
+          "Unique name index could not be removed"
+        );
+      }
+
+      console.log(
+        "[REGISTER] Name duplicates allowed. Database:",
+        User.db.name
+      );
+    })().catch(error => {
+      // Failure par next request retry kar sakti hai.
+      nameIndexFixPromise = null;
+      throw error;
+    });
+  }
+
+  return nameIndexFixPromise;
+}
+
+// --------------------------------------------------
+// REGISTER — duplicate check only by email
+// --------------------------------------------------
+
 router.post("/register", async (req, res) => {
   try {
     const {
@@ -131,21 +209,27 @@ router.post("/register", async (req, res) => {
       password,
       deviceId,
       appName
-    } = req.body;
+    } = req.body || {};
 
     const cleanName =
-      typeof name === "string" ? name.trim() : "";
+      typeof name === "string"
+        ? name.trim()
+        : "";
 
     const cleanEmail =
       typeof email === "string"
         ? email.trim().toLowerCase()
         : "";
 
-    const cleanAppName =
-      typeof appName === "string" ? appName.trim() : "";
-
     const cleanDeviceId =
-      typeof deviceId === "string" ? deviceId.trim() : "";
+      typeof deviceId === "string"
+        ? deviceId.trim()
+        : "";
+
+    const cleanAppName =
+      typeof appName === "string"
+        ? appName.trim()
+        : "";
 
     if (
       !cleanName ||
@@ -155,7 +239,7 @@ router.post("/register", async (req, res) => {
       !cleanDeviceId ||
       !cleanAppName
     ) {
-      return res.json({
+      return res.status(400).json({
         success: false,
         message:
           "Name, email, password, deviceId and appName are required"
@@ -165,30 +249,33 @@ router.post("/register", async (req, res) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!emailRegex.test(cleanEmail)) {
-      return res.json({
+      return res.status(400).json({
         success: false,
         message: "Invalid email address"
       });
     }
 
     if (password.length < 6) {
-      return res.json({
+      return res.status(400).json({
         success: false,
         message: "Password must be at least 6 characters"
       });
     }
 
-    // Duplicate check sirf email se.
+    // Email lookup also ensures the database connection is ready.
     const existingEmail = await User.findOne({
       email: cleanEmail
     });
 
     if (existingEmail) {
-      return res.json({
+      return res.status(409).json({
         success: false,
         message: "Email already registered"
       });
     }
+
+    // Process me ek baar existing name unique index fix hoga.
+    await ensureNameIsNotUnique();
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const firstAppReward = 100;
@@ -213,40 +300,84 @@ router.post("/register", async (req, res) => {
       avatar: 0,
       ca: false,
       isLoggedIn: true
+
+      // Normal registration me googleId omit rahega.
     });
 
-    return res.json({
+    return res.status(201).json({
       success: true,
       message: "Registration successful",
+
       userId: user._id,
       name: user.name,
       email: user.email,
+
       kc: user.kc,
       avatar: user.avatar,
       ca: user.ca,
+
       appNames: user.appNames,
       appRewards: user.appRewards,
+
       selectedFrameId: user.selectedFrameId,
+      unlockedFrameIds: user.unlockedFrameIds,
+
       ...getRankData(user.xp || 0)
     });
   } catch (error) {
-    console.error("Register error:", error);
+    console.error("[REGISTER] Error:", {
+      code: error.code,
+      message: error.message,
+      keyPattern: error.keyPattern,
+      keyValue: error.keyValue
+    });
 
-    // Simultaneous registrations ka email duplicate bhi handle karo.
-    if (
-      error.code === 11000 &&
-      (
-        error.keyPattern?.email ||
+    if (error.code === 11000) {
+      const duplicateFields = {
+        ...(error.keyPattern || {}),
+        ...(error.keyValue || {})
+      };
+
+      if (
         Object.prototype.hasOwnProperty.call(
-          error.keyValue || {},
+          duplicateFields,
           "email"
         )
-      )
-    ) {
-      return res.status(409).json({
-        success: false,
-        message: "Email already registered"
-      });
+      ) {
+        return res.status(409).json({
+          success: false,
+          message: "Email already registered"
+        });
+      }
+
+      if (
+        Object.prototype.hasOwnProperty.call(
+          duplicateFields,
+          "name"
+        )
+      ) {
+        // Next request par index check dobara chalega.
+        nameIndexFixPromise = null;
+
+        return res.status(500).json({
+          success: false,
+          message:
+            "Database name index needs correction. Please check server logs."
+        });
+      }
+
+      if (
+        Object.prototype.hasOwnProperty.call(
+          duplicateFields,
+          "googleId"
+        )
+      ) {
+        return res.status(500).json({
+          success: false,
+          message:
+            "Database Google ID index needs correction. Please check server logs."
+        });
+      }
     }
 
     return res.status(500).json({
