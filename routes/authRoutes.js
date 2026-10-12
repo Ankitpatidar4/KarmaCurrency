@@ -132,12 +132,28 @@ router.post("/register", async (req, res) => {
       deviceId,
       appName
     } = req.body;
+
+    const cleanName =
+      typeof name === "string" ? name.trim() : "";
+
+    const cleanEmail =
+      typeof email === "string"
+        ? email.trim().toLowerCase()
+        : "";
+
+    const cleanAppName =
+      typeof appName === "string" ? appName.trim() : "";
+
+    const cleanDeviceId =
+      typeof deviceId === "string" ? deviceId.trim() : "";
+
     if (
-      !name ||
-      !email ||
+      !cleanName ||
+      !cleanEmail ||
+      typeof password !== "string" ||
       !password ||
-      !deviceId ||
-      !appName
+      !cleanDeviceId ||
+      !cleanAppName
     ) {
       return res.json({
         success: false,
@@ -145,53 +161,46 @@ router.post("/register", async (req, res) => {
           "Name, email, password, deviceId and appName are required"
       });
     }
-    const cleanName = name.trim();
-    const cleanEmail = email.toLowerCase().trim();
-    const cleanAppName = appName.trim();
-    const emailRegex =
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
     if (!emailRegex.test(cleanEmail)) {
       return res.json({
         success: false,
         message: "Invalid email address"
       });
     }
+
     if (password.length < 6) {
       return res.json({
         success: false,
-        message:
-          "Password must be at least 6 characters"
+        message: "Password must be at least 6 characters"
       });
     }
-    const existingName = await User.findOne({
-      name: cleanName
-    });
-    if (existingName) {
-      return res.json({
-        success: false,
-        message: "Username already registered"
-      });
-    }
+
+    // Duplicate check sirf email se.
     const existingEmail = await User.findOne({
       email: cleanEmail
     });
+
     if (existingEmail) {
       return res.json({
         success: false,
         message: "Email already registered"
       });
     }
-    const hashedPassword =
-      await bcrypt.hash(password, 10);
+
+    const hashedPassword = await bcrypt.hash(password, 10);
     const firstAppReward = 100;
+
     const user = await User.create({
       name: cleanName,
       email: cleanEmail,
       password: hashedPassword,
-      deviceId,
-      appNames: [
-        cleanAppName
-      ],
+      deviceId: cleanDeviceId,
+
+      appNames: [cleanAppName],
+
       appRewards: [
         {
           appName: cleanAppName,
@@ -199,11 +208,13 @@ router.post("/register", async (req, res) => {
           linkedAt: new Date()
         }
       ],
+
       kc: firstAppReward,
       avatar: 0,
       ca: false,
-      isLoggedIn : true,
+      isLoggedIn: true
     });
+
     return res.json({
       success: true,
       message: "Registration successful",
@@ -215,15 +226,32 @@ router.post("/register", async (req, res) => {
       ca: user.ca,
       appNames: user.appNames,
       appRewards: user.appRewards,
-      selectedFrameId : user.selectedFrameId,
+      selectedFrameId: user.selectedFrameId,
       ...getRankData(user.xp || 0)
     });
   } catch (error) {
     console.error("Register error:", error);
+
+    // Simultaneous registrations ka email duplicate bhi handle karo.
+    if (
+      error.code === 11000 &&
+      (
+        error.keyPattern?.email ||
+        Object.prototype.hasOwnProperty.call(
+          error.keyValue || {},
+          "email"
+        )
+      )
+    ) {
+      return res.status(409).json({
+        success: false,
+        message: "Email already registered"
+      });
+    }
+
     return res.status(500).json({
       success: false,
-      message: "Server error",
-      error: error.message
+      message: "Unable to register account"
     });
   }
 });
@@ -233,48 +261,69 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const {
-      name,
+      email,
       password,
       appName
     } = req.body;
-    if (!name || !password || !appName) {
+
+    const cleanEmail =
+      typeof email === "string"
+        ? email.trim().toLowerCase()
+        : "";
+
+    const cleanAppName =
+      typeof appName === "string" ? appName.trim() : "";
+
+    if (
+      !cleanEmail ||
+      typeof password !== "string" ||
+      !password ||
+      !cleanAppName
+    ) {
       return res.json({
         success: false,
-        message:
-          "Name, password and appName are required"
+        message: "Email, password and appName are required"
       });
     }
-    const cleanLoginName = name.trim();
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(cleanEmail)) {
+      return res.json({
+        success: false,
+        message: "Please enter a valid email address"
+      });
+    }
+
+    // Login sirf email se. Name lookup nahi hoga.
     const user = await User.findOne({
-      $or: [
-        {
-          name: cleanLoginName
-        },
-        {
-          email: cleanLoginName.toLowerCase()
-        }
-      ]
+      email: cleanEmail
     });
+
     if (!user) {
       return res.json({
         success: false,
-        message: "User not found"
+        message: "Invalid email or password"
       });
     }
-    const isMatch =
-      await bcrypt.compare(
-        password,
-        user.password
-      );
+
+    const isMatch = await bcrypt.compare(
+      password,
+      user.password
+    );
+
     if (!isMatch) {
       return res.json({
         success: false,
-        message: "Wrong password"
+        message: "Invalid email or password"
       });
     }
-    const isNewAppAdded = addAppName(user, appName);
+
+    const isNewAppAdded = addAppName(user, cleanAppName);
+
     user.isLoggedIn = true;
-     await user.save();
+    await user.save();
+
     const token = jwt.sign(
       {
         userId: user._id,
@@ -285,11 +334,13 @@ router.post("/login", async (req, res) => {
         expiresIn: "7d"
       }
     );
+
     return res.json({
       success: true,
       message: isNewAppAdded
         ? "New app linked. You received 100 KC."
         : "Login successful",
+
       userId: user._id,
       name: user.name,
       email: user.email,
@@ -300,15 +351,15 @@ router.post("/login", async (req, res) => {
       appNames: user.appNames,
       appRewards: user.appRewards,
       isNewAppAdded,
-      selectedFrameId : user.selectedFrameId,
+      selectedFrameId: user.selectedFrameId,
       ...getRankData(user.xp || 0)
     });
   } catch (error) {
     console.error("Login error:", error);
+
     return res.status(500).json({
       success: false,
-      message: "Server error",
-      error: error.message
+      message: "Unable to login"
     });
   }
 });
@@ -626,16 +677,7 @@ router.post("/update-profile", async (req, res) => {
         message: "Unlock this frame before selecting it"
       });
     }
-    const duplicateName = await User.findOne({
-      name: cleanName,
-      _id: { $ne: userId }
-    });
-    if (duplicateName) {
-      return res.status(409).json({
-        success: false,
-        message: "Username already registered"
-      });
-    }
+    
     user.name = cleanName;
     user.avatar = avatar;
     user.selectedFrameId = frameId;
@@ -648,9 +690,7 @@ router.post("/update-profile", async (req, res) => {
     console.error("Update profile error:", error);
     return res.status(error.code === 11000 ? 409 : 500).json({
       success: false,
-      message: error.code === 11000
-        ? "Username already registered"
-        : "Unable to update profile"
+      message:"Unable to update profile"
     });
   }
 });
