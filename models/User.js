@@ -139,21 +139,33 @@ const userSchema = new mongoose.Schema(
       type: [karmaDeductionSchema],
       default: []
     },
+
     xp: {
       type: Number,
       default: 0,
       min: 0
     },
+
     googleId: {
       type: String,
-      unique: true,
-      sparse: true,
-      default: null
+      trim: true
     }
   },
   {
     timestamps: true,
     optimisticConcurrency: true
+  }
+);
+
+
+userSchema.index(
+  { googleId: 1 },
+  {
+    name: "googleId_1",
+    unique: true,
+    partialFilterExpression: {
+      googleId: { $type: "string" }
+    }
   }
 );
 
