@@ -6,6 +6,8 @@ const { firebaseAuth} = require("../config/firebaseAdmin");
 const avatarFrames = require("../config/avatarFrames");
 const DEFAULT_FRAME_ID = "frame_0";
 const {karmaRanks,getRankData} = require("../config/karmaRanks");
+const AppProgress = require("../models/AppProgress");
+
 const router = express.Router();
 function requireKarmaUser(req, res, next) {
   const header = req.headers.authorization || "";
@@ -1671,4 +1673,221 @@ router.post("/karma-ledger", requireKarmaUser, async (req, res) => {
     return res.status(500).json({ success: false, message: "Unable to load Karma ledger" });
   }
 });
+
+
+
+
+function validProgressAppId(appId) {
+  return (
+    typeof appId === "string" &&
+    /^[a-z0-9_-]{1,64}$/.test(appId)
+  );
+}
+
+function cleanProgressEntry(entry) {
+  if (
+    !entry ||
+    typeof entry.key !== "string" ||
+    !entry.key.length ||
+    entry.key.length > 200
+  ) {
+    throw new Error("Invalid progress key");
+  }
+
+  const result = {
+    key: entry.key,
+    type: entry.type,
+    boolValue: false,
+    intValue: 0,
+    floatValue: 0,
+    stringValue: ""
+  };
+
+  switch (entry.type) {
+    case "bool":
+      if (typeof entry.boolValue !== "boolean") {
+        throw new Error("Invalid boolean value");
+      }
+
+      result.boolValue = entry.boolValue;
+      break;
+
+    case "int":
+      if (
+        !Number.isSafeInteger(entry.intValue) ||
+        entry.intValue < -2147483648 ||
+        entry.intValue > 2147483647
+      ) {
+        throw new Error("Invalid integer value");
+      }
+
+      result.intValue = entry.intValue;
+      break;
+
+    case "float":
+      if (
+        typeof entry.floatValue !== "number" ||
+        !Number.isFinite(entry.floatValue)
+      ) {
+        throw new Error("Invalid float value");
+      }
+
+      result.floatValue = entry.floatValue;
+      break;
+
+    case "string":
+      if (
+        typeof entry.stringValue !== "string" ||
+        entry.stringValue.length > 8192
+      ) {
+        throw new Error("Invalid string value");
+      }
+
+      result.stringValue = entry.stringValue;
+      break;
+
+    default:
+      throw new Error("Invalid progress type");
+  }
+
+  return result;
+}
+
+// Restore current account's data for one app.
+router.post(
+  "/app-progress/get",
+  requireKarmaUser,
+  async (req, res) => {
+    try {
+      const { appId } = req.body || {};
+
+      if (!validProgressAppId(appId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Valid appId is required"
+        });
+      }
+
+      if (!(await User.exists({ _id: req.karmaUserId }))) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found"
+        });
+      }
+
+      await AppProgress.init();
+
+      const entries = await AppProgress.find({
+        userId: req.karmaUserId,
+        appId
+      })
+        .select(
+          "-_id key type boolValue intValue floatValue stringValue"
+        )
+        .lean();
+
+      return res.json({
+        success: true,
+        message: "App progress loaded",
+        appId,
+        entries
+      });
+    } catch (error) {
+      console.error("Get app progress error:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Unable to load app progress"
+      });
+    }
+  }
+);
+
+// Save changed keys only; other keys/apps remain intact.
+router.post(
+  "/app-progress/save",
+  requireKarmaUser,
+  async (req, res) => {
+    try {
+      const { appId, entries } = req.body || {};
+
+      if (!validProgressAppId(appId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Valid appId is required"
+        });
+      }
+
+      if (
+        !Array.isArray(entries) ||
+        entries.length < 1 ||
+        entries.length > 100
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Send between 1 and 100 progress entries"
+        });
+      }
+
+      let cleanEntries;
+
+      try {
+        cleanEntries = entries.map(cleanProgressEntry);
+
+        const keys = new Set(cleanEntries.map(item => item.key));
+
+        if (keys.size !== cleanEntries.length) {
+          throw new Error("Duplicate progress keys");
+        }
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          message: error.message
+        });
+      }
+
+      if (!(await User.exists({ _id: req.karmaUserId }))) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found"
+        });
+      }
+
+      await AppProgress.init();
+
+      await AppProgress.bulkWrite(
+        cleanEntries.map(entry => ({
+          updateOne: {
+            filter: {
+              userId: req.karmaUserId,
+              appId,
+              key: entry.key
+            },
+
+            update: {
+              $set: entry
+            },
+
+            upsert: true
+          }
+        }))
+      );
+
+      return res.json({
+        success: true,
+        message: "App progress saved",
+        appId
+      });
+    } catch (error) {
+      console.error("Save app progress error:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Unable to save app progress"
+      });
+    }
+  }
+);
+
+
 module.exports = router;
