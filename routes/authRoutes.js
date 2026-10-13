@@ -1334,7 +1334,7 @@ router.post("/unlock-avatar-frame", requireKarmaUser, async (req, res) => {
 // Karma Rank
 router.post("/karma-ranks", async (req, res) => {
   try {
-    const { userId } = req.body;
+    const { userId } = req.body || {};
 
     if (!isValidUserId(userId)) {
       return res.status(400).json({
@@ -1354,33 +1354,52 @@ router.post("/karma-ranks", async (req, res) => {
       });
     }
 
-    const rankData = getRankData(user.xp || 0);
+    const levelData = getRankData(user.xp || 0);
 
+    const levels = karmaRanks.map(item => ({
+      level: item.level,
+      totalLevels: karmaRanks.length,
+      levelText:
+        `Level ${item.level} of ${karmaRanks.length}`,
+
+      requiredXP: item.requiredXP,
+      isAchieved: levelData.xp >= item.requiredXP,
+      isCurrent: levelData.level === item.level
+    }));
+
+    // Older clients ke liye existing ranks list.
     const ranks = karmaRanks.map(item => ({
       rank: item.rank,
       totalRanks: karmaRanks.length,
       rankText: `${item.rank} of ${karmaRanks.length}`,
+
+      level: item.level,
+      totalLevels: karmaRanks.length,
+      levelText:
+        `Level ${item.level} of ${karmaRanks.length}`,
+
       requiredXP: item.requiredXP,
-      isAchieved: rankData.xp >= item.requiredXP,
-      isCurrent: rankData.rank === item.rank
+      isAchieved: levelData.xp >= item.requiredXP,
+      isCurrent: levelData.level === item.level
     }));
 
     return res.json({
       success: true,
-      message: "XP rank loaded",
+      message: "XP level loaded",
       userId: user._id,
 
-      kc: user.kc,
+      kc: user.kc || 0,
 
-      ...rankData,
+      ...levelData,
+      levels,
       ranks
     });
   } catch (error) {
-    console.error("XP rank error:", error);
+    console.error("XP level error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Unable to load XP rank"
+      message: "Unable to load XP level"
     });
   }
 });
