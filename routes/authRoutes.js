@@ -6,7 +6,7 @@ const { firebaseAuth} = require("../config/firebaseAdmin");
 const avatarFrames = require("../config/avatarFrames");
 const DEFAULT_FRAME_ID = "frame_0";
 const {karmaRanks,getRankData} = require("../config/karmaRanks");
-const AppProgress = require("../models/AppProgress");
+const UserProgress = require("../models/UserProgress");
 
 const router = express.Router();
 function requireKarmaUser(req, res, next) {
@@ -1753,6 +1753,10 @@ function cleanProgressEntry(entry) {
   return result;
 }
 
+function encodeProgressKey(key) {
+  return Buffer.from(key, "utf8").toString("base64url");
+}
+
 // Restore current account's data for one app.
 router.post(
   "/app-progress/get",
@@ -1775,22 +1779,20 @@ router.post(
         });
       }
 
-      await AppProgress.init();
+      await UserProgress.init();
 
-      const entries = await AppProgress.find({
-        userId: req.karmaUserId,
-        appId
-      })
-        .select(
-          "-_id key type boolValue intValue floatValue stringValue"
-        )
-        .lean();
+      const progress = await UserProgress.findOne({
+        userId: req.karmaUserId
+      }).lean();
+
+      const storedEntries =
+        progress?.apps?.[appId]?.entries || {};
 
       return res.json({
         success: true,
         message: "App progress loaded",
         appId,
-        entries
+        entries: Object.values(storedEntries)
       });
     } catch (error) {
       console.error("Get app progress error:", error);
@@ -1803,7 +1805,10 @@ router.post(
   }
 );
 
-// Save changed keys only; other keys/apps remain intact.
+// --------------------------------------------------
+// SAVE APP PROGRESS
+// --------------------------------------------------
+
 router.post(
   "/app-progress/save",
   requireKarmaUser,
@@ -1834,7 +1839,9 @@ router.post(
       try {
         cleanEntries = entries.map(cleanProgressEntry);
 
-        const keys = new Set(cleanEntries.map(item => item.key));
+        const keys = new Set(
+          cleanEntries.map(entry => entry.key)
+        );
 
         if (keys.size !== cleanEntries.length) {
           throw new Error("Duplicate progress keys");
@@ -1853,25 +1860,55 @@ router.post(
         });
       }
 
-      await AppProgress.init();
+      await UserProgress.init();
 
-      await AppProgress.bulkWrite(
-        cleanEntries.map(entry => ({
-          updateOne: {
-            filter: {
-              userId: req.karmaUserId,
-              appId,
-              key: entry.key
-            },
+      const updates = {};
 
-            update: {
-              $set: entry
-            },
+      for (const entry of cleanEntries) {
+        const encodedKey = encodeProgressKey(entry.key);
 
-            upsert: true
+        // Sirf changed key update hogi.
+        // Doosre apps aur keys overwrite nahi hongi.
+        updates[
+          `apps.${appId}.entries.${encodedKey}`
+        ] = entry;
+      }
+
+      const filter = {
+        userId: req.karmaUserId
+      };
+
+      const update = {
+        $set: updates
+      };
+
+      try {
+        await UserProgress.updateOne(
+          filter,
+          update,
+          {
+            upsert: true,
+            runValidators: true
           }
-        }))
-      );
+        );
+      } catch (error) {
+        // Simultaneous first saves same user document
+        // create karein to existing document update karo.
+        if (
+          error.code !== 11000 ||
+          !error.keyPattern?.userId
+        ) {
+          throw error;
+        }
+
+        await UserProgress.updateOne(
+          filter,
+          update,
+          {
+            runValidators: true
+          }
+        );
+      }
 
       return res.json({
         success: true,
