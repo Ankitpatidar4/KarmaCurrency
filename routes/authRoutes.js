@@ -308,6 +308,7 @@ router.post("/register", async (req, res) => {
 
     return res.status(201).json({
       success: true,
+      isNewUser: true,
       message: "Registration successful",
 
       userId: user._id,
@@ -1089,6 +1090,7 @@ router.post(
       );
       return res.json({
         success: true,
+        isNewUser,
         message:
           isNewUser
             ? "Google account registered successfully"
