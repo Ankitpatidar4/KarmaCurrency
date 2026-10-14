@@ -68,6 +68,36 @@ const karmaDeductionSchema = new mongoose.Schema(
   }
 );
 
+// userSchema se PEHLE define karna zaroori hai.
+const karmaCreditSchema = new mongoose.Schema(
+  {
+    requestId: {
+      type: String,
+      required: true
+    },
+
+    appName: {
+      type: String,
+      required: true,
+      trim: true
+    },
+
+    amount: {
+      type: Number,
+      required: true,
+      min: 1
+    },
+
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  {
+    _id: false
+  }
+);
+
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -161,7 +191,6 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-
 userSchema.index(
   { googleId: 1 },
   {
@@ -170,36 +199,6 @@ userSchema.index(
     partialFilterExpression: {
       googleId: { $type: "string" }
     }
-  }
-);
-
-
-const karmaCreditSchema = new mongoose.Schema(
-  {
-    requestId: {
-      type: String,
-      required: true
-    },
-
-    appName: {
-      type: String,
-      required: true,
-      trim: true
-    },
-
-    amount: {
-      type: Number,
-      required: true,
-      min: 1
-    },
-
-    createdAt: {
-      type: Date,
-      default: Date.now
-    }
-  },
-  {
-    _id: false
   }
 );
 
