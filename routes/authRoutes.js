@@ -91,35 +91,60 @@ function addKCToApp(user, appName, rewardKC) {
 /*
  * New app link karega aur first time 100 KC dega.
  */
-function addAppName(user, appName) {
-  if (!appName || typeof appName !== "string") {
+function addAppName(user, appName, linkRewardKC = 100) {
+  if (
+    typeof appName !== "string" ||
+    !appName.trim() ||
+    !Number.isSafeInteger(linkRewardKC) ||
+    linkRewardKC < 0
+  ) {
     return false;
   }
+
   const cleanAppName = appName.trim();
-  if (!cleanAppName) {
-    return false;
-  }
-  if (!Array.isArray(user.appNames)) {
+
+  if (!Array.isArray(user.appNames))
     user.appNames = [];
-  }
-  if (!Array.isArray(user.appRewards)) {
+
+  if (!Array.isArray(user.appRewards))
     user.appRewards = [];
-  }
-  if (typeof user.kc !== "number") {
+
+  if (!Number.isFinite(user.kc))
     user.kc = 0;
-  }
+
   const alreadyLinked = user.appNames.some(
-    linkedApp =>
-      linkedApp &&
-      linkedApp.trim().toLowerCase() ===
+    name =>
+      typeof name === "string" &&
+      name.trim().toLowerCase() === cleanAppName.toLowerCase()
+  );
+
+  if (alreadyLinked)
+    return false;
+
+  user.appNames.push(cleanAppName);
+
+  const existingReward = user.appRewards.find(
+    reward =>
+      typeof reward.appName === "string" &&
+      reward.appName.trim().toLowerCase() ===
         cleanAppName.toLowerCase()
   );
-  if (alreadyLinked) {
-    return false;
+
+  if (existingReward) {
+    existingReward.kcEarned =
+      Number(existingReward.kcEarned || 0) + linkRewardKC;
+  } else {
+    user.appRewards.push({
+      appName: cleanAppName,
+
+      // Guest Stars zero hon to explicit zero save hoga.
+      kcEarned: linkRewardKC,
+      linkedAt: new Date()
+    });
   }
-  user.appNames.push(cleanAppName);
-  // New app link reward
-  addKCToApp(user, cleanAppName, 100);
+
+  user.kc += linkRewardKC;
+
   return true;
 }
 /*
@@ -280,7 +305,18 @@ router.post("/register", async (req, res) => {
     await ensureNameIsNotUnique();
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const firstAppReward = 100;
+    let signupReward;
+
+try {
+  signupReward = getSignupReward(req.body || {});
+} catch (error) {
+  return res.status(400).json({
+    success: false,
+    message: error.message
+  });
+}
+
+const firstAppReward = signupReward.initialKC;
 
     const user = await User.create({
       name: cleanName,
@@ -324,7 +360,10 @@ router.post("/register", async (req, res) => {
 
       selectedFrameId: user.selectedFrameId,
       unlockedFrameIds: user.unlockedFrameIds,
-
+      isNewUser: true,
+      guestStarsTransferred: signupReward.fromGuest,
+      transferredGuestStars: signupReward.fromGuest
+      ? signupReward.guestStars : 0,
       ...getRankData(user.xp || 0)
     });
   } catch (error) {
@@ -829,88 +868,196 @@ router.post("/update-profile", async (req, res) => {
   }
 });
 // Add KC
-router.post("/add-kc", async (req, res) => {
-  try {
-    const {
-      userId,
-      appName,
-      rewardKC
-    } = req.body;
-    if (!userId) {
-      return res.json({
-        success: false,
-        message: "UserId is required"
-      });
-    }
-    if (
-      !appName ||
-      typeof appName !== "string" ||
-      !appName.trim()
-    ) {
-      return res.json({
-        success: false,
-        message: "AppName is required"
-      });
-    }
-    const cleanRewardKC =
-      Number(rewardKC);
-    if (
-      !Number.isFinite(cleanRewardKC) ||
-      cleanRewardKC <= 0
-    ) {
-      return res.json({
+router.post(
+  "/add-kc",
+  requireKarmaUser,
+  async (req, res) => {
+    try {
+      const userId = req.karmaUserId;
+
+      const {
+        appName,
+        rewardKC,
+        requestId
+      } = req.body || {};
+
+      const cleanAppName =
+        typeof appName === "string"
+          ? appName.trim()
+          : "";
+
+      if (!cleanAppName || cleanAppName.length > 150) {
+        return res.status(400).json({
+          success: false,
+          message: "Valid appName is required"
+        });
+      }
+
+      if (!validKarmaAmount(rewardKC)) {
+        return res.status(400).json({
+          success: false,
+          message: "rewardKC must be a positive integer"
+        });
+      }
+
+      if (!validKarmaRequestId(requestId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Valid requestId is required"
+        });
+      }
+
+      // Optimistic concurrency conflict par fresh document retry.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const user = await User.findById(userId);
+
+        if (!user) {
+          return res.status(404).json({
+            success: false,
+            message: "User not found"
+          });
+        }
+
+        const storedAppName = getStoredKarmaAppName(
+          user,
+          cleanAppName
+        );
+
+        const existingCredit = (user.karmaCredits || [])
+          .find(item => item.requestId === requestId);
+
+        if (existingCredit) {
+          const sameRequest =
+            existingCredit.appName.toLowerCase() ===
+              storedAppName.toLowerCase() &&
+            existingCredit.amount === rewardKC;
+
+          if (!sameRequest) {
+            return res.status(409).json({
+              success: false,
+              message:
+                "Request ID already used for another credit"
+            });
+          }
+
+          return res.json({
+            ...profileResponse(
+              user,
+              "Credit already processed"
+            ),
+
+            requestId,
+            rewardedApp: existingCredit.appName,
+
+            // Is retry me new credit zero hai.
+            addedKC: 0,
+            originalAddedKC: existingCredit.amount,
+            alreadyProcessed: true
+          });
+        }
+
+        const currentKC = Number(user.kc || 0);
+
+        if (
+          !Number.isSafeInteger(currentKC) ||
+          currentKC < 0 ||
+          !Number.isSafeInteger(currentKC + rewardKC)
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid Karma balance or amount"
+          });
+        }
+
+        if (!Array.isArray(user.appRewards))
+          user.appRewards = [];
+
+        const appReward = user.appRewards.find(item =>
+          typeof item.appName === "string" &&
+          item.appName.trim().toLowerCase() ===
+            storedAppName.toLowerCase()
+        );
+
+        if (appReward) {
+          const earned = Number(appReward.kcEarned || 0);
+
+          if (
+            !Number.isSafeInteger(earned) ||
+            !Number.isSafeInteger(earned + rewardKC)
+          ) {
+            return res.status(400).json({
+              success: false,
+              message: "Invalid app Karma total"
+            });
+          }
+
+          appReward.kcEarned = earned + rewardKC;
+        } else {
+          user.appRewards.push({
+            appName: storedAppName,
+            kcEarned: rewardKC,
+            linkedAt: new Date()
+          });
+        }
+
+        user.kc = currentKC + rewardKC;
+
+        if (!Array.isArray(user.karmaCredits))
+          user.karmaCredits = [];
+
+        user.karmaCredits.push({
+          requestId,
+          appName: storedAppName,
+          amount: rewardKC,
+          createdAt: new Date()
+        });
+
+        try {
+          // Balance, earned total aur request record
+          // ek document save me persist honge.
+          await user.save();
+        } catch (error) {
+          if (error.name === "VersionError")
+            continue;
+
+          throw error;
+        }
+
+        return res.json({
+          ...profileResponse(
+            user,
+            `${rewardKC} KC added successfully`
+          ),
+
+          requestId,
+          rewardedApp: storedAppName,
+          addedKC: rewardKC,
+          originalAddedKC: rewardKC,
+          alreadyProcessed: false
+        });
+      }
+
+      return res.status(409).json({
         success: false,
         message:
-          "RewardKC must be greater than 0"
+          "Balance changed during credit. Retry with the same requestId.",
+        retryable: true
       });
-    }
-    const user =
-      await User.findById(userId);
-    if (!user) {
-      return res.json({
+    } catch (error) {
+      console.error("Add KC error:", error);
+
+      return res.status(500).json({
         success: false,
-        message: "User not found"
+        message:
+          "Unable to add Karma. Retry with the same requestId."
       });
     }
-    const added =
-      addKCToApp(
-        user,
-        appName,
-        cleanRewardKC
-      );
-    if (!added) {
-      return res.json({
-        success: false,
-        message: "KC could not be added"
-      });
-    }
-    await user.save();
-    return res.json({
-      success: true,
-      message:
-        `${cleanRewardKC} KC added successfully`,
-      userId: user._id,
-      name: user.name,
-      email: user.email,
-      kc: user.kc,
-      avatar: user.avatar,
-      ca: user.ca,
-      appNames: user.appNames,
-      appRewards: user.appRewards,
-      addedKC: cleanRewardKC,
-      rewardedApp: appName.trim(),
-      selectedFrameId : user.selectedFrameId,
-      ...getRankData(user.xp || 0)
-    });
-  } catch (error) {
-    console.error("Add KC error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-      error: error.message
-    });
   }
-});
+);
+
+
+
+
 router.post(
   "/google-login",
   async (req, res) => {
@@ -1058,7 +1205,33 @@ router.post(
         user.deviceId =
           deviceId;
       }
-      const isNewAppAdded =  addAppName(user,appName);
+      let signupReward = {
+  fromGuest: false,
+  guestStars: 0,
+  initialKC: 100
+};
+
+// Guest amount sirf NEW account creation par use hoga.
+if (isNewUser) {
+  try {
+    signupReward = getSignupReward(req.body || {});
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+}
+
+const linkRewardKC = isNewUser
+  ? signupReward.initialKC
+  : 100;
+
+const isNewAppAdded = addAppName(
+  user,
+  appName,
+  linkRewardKC
+);
       user.isLoggedIn = true;
       await user.save();
       const token =
@@ -1075,17 +1248,13 @@ router.post(
       console.log(
         "Google Login Success:",
         {
-          userId:
-            user._id.toString(),
-          name:
-            user.name,
-          email:
-            user.email,
+          userId: user._id.toString(),
+          name: user.name,
+          email: user.email,
           appName,
           isNewUser,
           isNewAppAdded,
-          kc:
-            user.kc
+          kc: user.kc
         }
       );
       return res.json({
@@ -1095,26 +1264,21 @@ router.post(
           isNewUser
             ? "Google account registered successfully"
             : "Google login successful",
-        userId:
-          user._id,
-        name:
-          user.name,
-        email:
-          user.email,
+        userId: user._id,
+        name: user.name,
+        email: user.email,
         token,
-        kc:
-          user.kc,
-        avatar:
-          user.avatar,
-        ca:
-          user.ca,
+        kc: user.kc,
+        avatar: user.avatar,
+        ca: user.ca,
         isNewAppAdded,
-        appNames:
-          user.appNames,
-        appRewards:
-          user.appRewards,
-      selectedFrameId : user.selectedFrameId,
-      ...getRankData(user.xp || 0)
+        appNames: user.appNames,
+        appRewards: user.appRewards,
+        selectedFrameId : user.selectedFrameId,
+        isNewUser,
+        guestStarsTransferred: isNewUser && signupReward.fromGuest,
+        transferredGuestStars: isNewUser && signupReward.fromGuest ? signupReward.guestStars : 0,
+        ...getRankData(user.xp || 0)
       });
     } catch (error) {
       console.error(
@@ -1471,136 +1635,165 @@ router.post(
   async (req, res) => {
     try {
       const userId = req.karmaUserId;
+
       const {
         appName,
         subtractKC,
         reason,
         requestId
-      } = req.body;
+      } = req.body || {};
+
       const cleanAppName =
-        typeof appName === "string" ? appName.trim() : "";
+        typeof appName === "string"
+          ? appName.trim()
+          : "";
+
       const cleanReason =
-        typeof reason === "string" ? reason.trim() : "";
+        typeof reason === "string"
+          ? reason.trim()
+          : "";
+
       if (!cleanAppName || cleanAppName.length > 150) {
         return res.status(400).json({
           success: false,
           message: "Valid appName is required"
         });
       }
-      if (
-        typeof subtractKC !== "number" ||
-        !Number.isSafeInteger(subtractKC) ||
-        subtractKC <= 0
-      ) {
+
+      if (!validKarmaAmount(subtractKC)) {
         return res.status(400).json({
           success: false,
           message: "subtractKC must be a positive integer"
         });
       }
+
       if (!cleanReason || cleanReason.length > 500) {
         return res.status(400).json({
           success: false,
           message: "Deduction reason is required"
         });
       }
-      if (
-        typeof requestId !== "string" ||
-        !/^[a-zA-Z0-9_-]{8,100}$/.test(requestId)
-      ) {
+
+      if (!validKarmaRequestId(requestId)) {
         return res.status(400).json({
           success: false,
           message: "Valid requestId is required"
         });
       }
+
       const user = await User.findById(userId);
+
       if (!user) {
         return res.status(404).json({
           success: false,
           message: "User not found"
         });
       }
-      // Existing account me app ka stored spelling use karo.
-      const knownNames = [
-        ...(user.appNames || []),
-        ...(user.appRewards || []).map(item => item.appName)
-      ];
-      const storedAppName = knownNames.find(name =>
-        typeof name === "string" &&
-        name.trim().toLowerCase() === cleanAppName.toLowerCase()
+
+      const storedAppName = getStoredKarmaAppName(
+        user,
+        cleanAppName
       );
-      const deductionAppName = storedAppName
-        ? storedAppName.trim()
-        : cleanAppName;
+
       function replyIfProcessed(latestUser) {
-        const existing = (latestUser.karmaDeductions || [])
-          .find(item => item.requestId === requestId);
-        if (!existing)
+        const existingDeduction =
+          (latestUser.karmaDeductions || [])
+            .find(item => item.requestId === requestId);
+
+        if (!existingDeduction)
           return false;
+
         const sameRequest =
-          existing.scope === "APP" &&
-          existing.appName.toLowerCase() ===
-            deductionAppName.toLowerCase() &&
-          existing.amount === subtractKC &&
-          existing.reason === cleanReason;
+          existingDeduction.scope === "APP" &&
+          existingDeduction.appName.toLowerCase() ===
+            storedAppName.toLowerCase() &&
+          existingDeduction.amount === subtractKC &&
+          existingDeduction.reason === cleanReason;
+
         if (!sameRequest) {
           res.status(409).json({
             success: false,
-            message: "Request ID already used for another deduction"
+            message:
+              "Request ID already used for another deduction"
           });
-        } else {
-          res.json({
-            ...profileResponse(latestUser, "Deduction already processed"),
-            deductedApp: existing.appName,
-            deductedKC: existing.amount,
-            deductionReason: existing.reason,
-            requestId,
-            alreadyProcessed: true
-          });
+
+          return true;
         }
+
+        res.json({
+          ...profileResponse(
+            latestUser,
+            "Deduction already processed"
+          ),
+
+          requestId,
+          deductedApp: existingDeduction.appName,
+
+          // Is retry me new deduction zero hai.
+          deductedKC: 0,
+          originalDeductedKC: existingDeduction.amount,
+
+          deductionReason: existingDeduction.reason,
+          alreadyProcessed: true
+        });
+
         return true;
       }
+
       if (replyIfProcessed(user))
         return;
+
       const updatedUser = await User.findOneAndUpdate(
         {
           _id: userId,
+
+          // Insufficient balance par update nahi hoga.
           kc: { $gte: subtractKC },
+
+          // Same request ek baar hi apply hogi.
           "karmaDeductions.requestId": { $ne: requestId }
         },
+
         {
           $inc: {
             kc: -subtractKC,
+
+            // Concurrent user.save() ko conflict detect karne do.
             __v: 1
           },
+
           $push: {
             karmaDeductions: {
               requestId,
               scope: "APP",
-              appName: deductionAppName,
+              appName: storedAppName,
               amount: subtractKC,
               reason: cleanReason,
-              // Existing schema me itemId required hai.
-              // Generic deduction ke liye requestId use kar rahe hain.
               itemId: requestId,
               createdAt: new Date()
             }
           }
         },
+
         {
           new: true,
           runValidators: true
         }
       );
+
       if (!updatedUser) {
         const latestUser = await User.findById(userId);
+
         if (!latestUser) {
           return res.status(404).json({
             success: false,
             message: "User not found"
           });
         }
+
         if (replyIfProcessed(latestUser))
           return;
+
         return res.status(400).json({
           success: false,
           message: "Not enough Karma",
@@ -1608,26 +1801,34 @@ router.post(
           requiredKC: subtractKC
         });
       }
+
       return res.json({
         ...profileResponse(
           updatedUser,
           `${subtractKC} KC deducted successfully`
         ),
-        deductedApp: deductionAppName,
-        deductedKC: subtractKC,
-        deductionReason: cleanReason,
+
         requestId,
+        deductedApp: storedAppName,
+        deductedKC: subtractKC,
+        originalDeductedKC: subtractKC,
+        deductionReason: cleanReason,
         alreadyProcessed: false
       });
     } catch (error) {
       console.error("Subtract KC error:", error);
+
       return res.status(500).json({
         success: false,
-        message: "Unable to deduct Karma"
+        message:
+          "Unable to subtract Karma. Retry with the same requestId."
       });
     }
   }
 );
+
+
+
 function getKarmaLedger(user) {
   const apps = new Map();
   function getApp(appName) {
@@ -1928,5 +2129,70 @@ router.post(
   }
 );
 
+function getSignupReward(body) {
+  if (
+    body.fromGuest !== undefined &&
+    typeof body.fromGuest !== "boolean"
+  ) {
+    throw new Error("fromGuest must be a boolean");
+  }
+
+  const fromGuest = body.fromGuest === true;
+
+  if (!fromGuest) {
+    return {
+      fromGuest: false,
+      guestStars: 0,
+      initialKC: 100
+    };
+  }
+
+  if (
+    typeof body.guestStars !== "number" ||
+    !Number.isSafeInteger(body.guestStars) ||
+    body.guestStars < 0 ||
+    body.guestStars > 2147483647
+  ) {
+    throw new Error("guestStars must be a non-negative integer");
+  }
+
+  return {
+    fromGuest: true,
+    guestStars: body.guestStars,
+    initialKC: body.guestStars
+  };
+}
+
+
+function validKarmaRequestId(requestId) {
+  return (
+    typeof requestId === "string" &&
+    /^[a-zA-Z0-9_-]{8,100}$/.test(requestId)
+  );
+}
+
+function validKarmaAmount(amount) {
+  return (
+    typeof amount === "number" &&
+    Number.isSafeInteger(amount) &&
+    amount > 0
+  );
+}
+
+function getStoredKarmaAppName(user, appName) {
+  const cleanName = appName.trim();
+
+  const knownNames = [
+    ...(user.appNames || []),
+    ...(user.appRewards || []).map(item => item.appName)
+  ];
+
+  const storedName = knownNames.find(name =>
+    typeof name === "string" &&
+    name.trim().toLowerCase() === cleanName.toLowerCase()
+  );
+
+  return storedName ? storedName.trim() : cleanName;
+}
 
 module.exports = router;

@@ -145,6 +145,11 @@ const userSchema = new mongoose.Schema(
       min: 0
     },
 
+    karmaCredits: {
+      type: [karmaCreditSchema],
+      default: []
+    },
+
     googleId: {
       type: String,
       trim: true
@@ -165,6 +170,36 @@ userSchema.index(
     partialFilterExpression: {
       googleId: { $type: "string" }
     }
+  }
+);
+
+
+const karmaCreditSchema = new mongoose.Schema(
+  {
+    requestId: {
+      type: String,
+      required: true
+    },
+
+    appName: {
+      type: String,
+      required: true,
+      trim: true
+    },
+
+    amount: {
+      type: Number,
+      required: true,
+      min: 1
+    },
+
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  },
+  {
+    _id: false
   }
 );
 
